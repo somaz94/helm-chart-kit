@@ -173,6 +173,31 @@ jobs:
           fi
           echo "PASS: schema enforced"
 
+      # The values table has to regenerate identically, survive hand-written
+      # text around it, and grow when a resource adds values.
+      - name: Generate and check the values table
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new demo --dir "$workdir" --schema
+          chart="$workdir/demo"
+
+          hck docs --chart "$chart" --write
+          hck docs --chart "$chart" --check
+
+          printf '\n<br/>\n\n## Notes\n\nKeep me.\n' >> "$chart/README.md"
+          hck add servicemonitor --chart "$chart"
+          if hck docs --chart "$chart" --check; then
+            echo "FAIL: --check passed a README that predates the new values"
+            exit 1
+          fi
+          hck docs --chart "$chart" --write
+          hck docs --chart "$chart" --check
+          grep -q 'Keep me.' "$chart/README.md"
+          grep -q 'metrics.serviceMonitor.enabled' "$chart/README.md"
+          echo "PASS: values table"
+
       # A chart that never asked for a schema must not acquire one.
       - name: Keep the schema opt-in
         run: |

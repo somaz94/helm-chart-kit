@@ -140,6 +140,34 @@ A chart that has a schema must describe every key its `values.yaml` declares, or
 
 <br/>
 
+## hck docs
+
+Turn `values.yaml` into a Markdown table.
+
+```bash
+hck docs [flags]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--chart` | `.` | Chart directory |
+| `--write` | `false` | Write the table into the chart's `README.md` |
+| `--check` | `false` | Fail when the README's table differs from what would be generated |
+
+```bash
+hck docs                       # print it
+hck docs --write               # write it into README.md
+hck docs --check               # CI gate
+```
+
+Descriptions come from the file itself: a comment line opening with `-- ` documents the key below it. A section banner is not a description — only the `-- ` prefix starts one, so the banners that divide `values.yaml` into sections do not leak into the table.
+
+Types and allowed values come from the schema. The chart does not need a committed `values.schema.json`: one is assembled from the resources it carries when the file is absent.
+
+`--write` replaces the block between `<!-- hck:values:start -->` and `<!-- hck:values:end -->`, leaving everything around it untouched. A README with no markers gets them appended under a `## Values` heading; a chart with no README gets one. `--write` and `--check` are mutually exclusive.
+
+<br/>
+
 ## hck list
 
 ```bash

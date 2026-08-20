@@ -71,6 +71,9 @@ func Load(dir string) (*Chart, error) {
 // ValuesPath is the chart's values.yaml.
 func (c *Chart) ValuesPath() string { return filepath.Join(c.Dir, "values.yaml") }
 
+// ReadmePath is the chart's README.md.
+func (c *Chart) ReadmePath() string { return filepath.Join(c.Dir, "README.md") }
+
 // SchemaPath is the chart's values.schema.json.
 func (c *Chart) SchemaPath() string { return filepath.Join(c.Dir, "values.schema.json") }
 

@@ -97,6 +97,11 @@ hck add httproute --dry-run
 hck check
 hck check -f values/prod.yaml --strict
 
+# Document the values as a Markdown table
+hck docs                              # print it
+hck docs --write                      # write it into the chart's README
+hck docs --check                      # CI gate: is it still current?
+
 # Describe the values with a JSON Schema
 hck new payments-api --schema         # scaffold with values.schema.json
 hck schema --write                    # add one to a chart that already exists
@@ -185,6 +190,39 @@ still work.
 `hck schema --check` is the CI gate: it rebuilds the schema and fails if the
 committed file differs, which catches a `values.yaml` edited by hand without
 the schema following it.
+
+<br/>
+
+## `hck docs`
+
+`values.yaml` already documents itself — every key carries a `-- ` comment, the
+helm-docs convention. `hck docs` reads those back out and renders a table:
+
+```console
+$ hck docs
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `replicaCount` | int | `1` | Number of pod replicas. Ignored when autoscaling.enabled is true. |
+| `image.pullPolicy` | string | `IfNotPresent` | Image pull policy. One of: `Always`, `IfNotPresent`, `Never`. |
+| `service.nodePort` | string/int/null | `""` | Fixed node port. Only read when type is NodePort. |
+```
+
+The types and the allowed values come from the schema, because `values.yaml`
+cannot express them: a key defaulting to `""` says nothing about whether it
+takes a string or a number, and nothing at all about the four values the API
+accepts. The chart does not need a committed `values.schema.json` for this —
+one is assembled on the fly when the file is absent.
+
+`--write` replaces the block between two markers in the chart's `README.md`
+and leaves everything around it alone:
+
+```markdown
+<!-- hck:values:start -->
+... generated table ...
+<!-- hck:values:end -->
+```
+
+A chart with no README gets one. `hck docs --check` is the CI gate.
 
 <br/>
 

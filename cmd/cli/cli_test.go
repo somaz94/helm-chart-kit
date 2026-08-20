@@ -541,3 +541,98 @@ func TestAddEveryNonWorkloadResource(t *testing.T) {
 		t.Fatalf("a chart carrying every resource does not pass its own check:\n%s", out)
 	}
 }
+
+func TestDocsPrintsATableWithoutTouchingTheChart(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+
+	out := mustRun(t, "docs", "--chart", dir)
+	if !strings.HasPrefix(out, "| Key | Type | Default | Description |") {
+		t.Fatalf("not a Markdown table:\n%s", out)
+	}
+	if !strings.Contains(out, "`replicaCount`") {
+		t.Error("table does not document replicaCount")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "README.md")); err == nil {
+		t.Error("printing wrote a README")
+	}
+}
+
+// Types and allowed values come from the schema. A chart that never opted into
+// values.schema.json still gets them, because one is assembled on the fly.
+func TestDocsUsesTheSchemaEvenWithoutTheFile(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+	if _, err := os.Stat(filepath.Join(dir, "values.schema.json")); err == nil {
+		t.Fatal("the chart has a schema, so this proves nothing")
+	}
+	out := mustRun(t, "docs", "--chart", dir)
+	if !strings.Contains(out, "One of: `Always`, `IfNotPresent`, `Never`.") {
+		t.Errorf("no allowed values in the table:\n%s", firstLines(out, 6))
+	}
+}
+
+func TestDocsWriteAndCheck(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--schema")
+	dir := filepath.Join(parent, "demo")
+	readme := filepath.Join(dir, "README.md")
+
+	if _, err := run(t, "docs", "--chart", dir, "--check"); err == nil {
+		t.Error("want an error when the chart has no README")
+	}
+	mustRun(t, "docs", "--chart", dir, "--write")
+	mustRun(t, "docs", "--chart", dir, "--check")
+
+	// Hand-written text around the block has to survive a regeneration, and
+	// adding a resource has to make --check notice.
+	raw, err := os.ReadFile(readme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(readme, append(raw, []byte("\n<br/>\n\n## Notes\n\nKeep me.\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "add", "servicemonitor", "--chart", dir)
+	if _, err := run(t, "docs", "--chart", dir, "--check"); err == nil {
+		t.Error("--check passed a README that predates the new values")
+	}
+	mustRun(t, "docs", "--chart", dir, "--write")
+	mustRun(t, "docs", "--chart", dir, "--check")
+
+	after, err := os.ReadFile(readme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "Keep me.") {
+		t.Error("regenerating ate the hand-written section")
+	}
+	if !strings.Contains(string(after), "metrics.serviceMonitor.enabled") {
+		t.Error("the new values never reached the table")
+	}
+}
+
+func TestDocsRejectsWriteAndCheckTogether(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	if _, err := run(t, "docs", "--chart", filepath.Join(parent, "demo"), "--write", "--check"); err == nil {
+		t.Error("want an error when both are passed")
+	}
+}
+
+func TestDocsOutsideAChart(t *testing.T) {
+	if _, err := run(t, "docs", "--chart", t.TempDir()); err == nil {
+		t.Error("want an error when there is no Chart.yaml")
+	}
+}
+
+// firstLines trims long output for a failure message.
+func firstLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
+}
