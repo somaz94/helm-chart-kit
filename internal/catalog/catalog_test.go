@@ -1,9 +1,11 @@
 package catalog
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/somaz94/helm-chart-kit/internal/render"
+	"github.com/somaz94/helm-chart-kit/internal/values"
 )
 
 func TestLookup(t *testing.T) {
@@ -116,5 +118,41 @@ func TestEveryResourceHasTemplates(t *testing.T) {
 		if !render.HasResource(r.Name) {
 			t.Errorf("catalog lists %q but internal/render/templates/resources/%s has no templates", r.Name, r.Name)
 		}
+	}
+}
+
+// testData is the minimum context the values fragments need to render.
+func testData() render.Data {
+	return render.Data{
+		ChartName:   "demo",
+		Description: "a demo chart",
+		Version:     "0.1.0",
+		AppVersion:  "1.0.0",
+		Preset:      "web",
+	}
+}
+
+// TestValuesKeysMatchTheTemplates compares what the catalog says a resource
+// contributes against what its values fragment actually declares.
+//
+// Nothing at runtime reads ValuesKeys — the merge splits the fragment itself —
+// so the field had drifted: four workloads under-declared their keys and the
+// CronJob claimed an "affinity" its template never had. A field nothing checks
+// is a field that stops being true.
+func TestValuesKeysMatchTheTemplates(t *testing.T) {
+	for _, r := range Resources() {
+		t.Run(r.Name, func(t *testing.T) {
+			raw, err := render.ResourceValues(r.Name, testData())
+			if err != nil {
+				t.Fatal(err)
+			}
+			declared, err := values.TopLevelKeys(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(r.ValuesKeys, declared) {
+				t.Errorf("catalog ValuesKeys and values.yaml.tmpl disagree\n  catalog: %v\n  template: %v", r.ValuesKeys, declared)
+			}
+		})
 	}
 }

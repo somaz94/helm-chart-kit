@@ -19,8 +19,11 @@ type Resource struct {
 	// APIVersion is the Kubernetes apiVersion the template emits. Shown in
 	// listings so a user can tell at a glance whether their cluster has it.
 	APIVersion string
-	// ValuesKeys are the top-level values.yaml keys this resource owns. The
-	// merge step uses them to decide whether the fragment is already present.
+	// ValuesKeys are the top-level values.yaml keys this resource
+	// contributes, in the order its fragment declares them. The merge itself
+	// reads the fragment rather than this list, so nothing at runtime would
+	// notice the two disagreeing — TestValuesKeysMatchTheTemplates compares
+	// them instead.
 	ValuesKeys []string
 	// Requires names resources that must exist for this one to render. "hck
 	// add" reports them rather than pulling them in silently.
@@ -49,7 +52,7 @@ var resources = []Resource{
 		File:       "deployment.yaml",
 		Summary:    "Stateless workload with probes, resources and securityContext",
 		APIVersion: "apps/v1",
-		ValuesKeys: []string{"replicaCount", "image", "imagePullSecrets", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "resources", "livenessProbe", "readinessProbe", "nodeSelector", "tolerations", "affinity", "env", "volumes", "volumeMounts"},
+		ValuesKeys: []string{"replicaCount", "revisionHistoryLimit", "updateStrategy", "terminationGracePeriodSeconds", "priorityClassName", "image", "imagePullSecrets", "containerPort", "command", "args", "env", "envFrom", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "livenessProbe", "readinessProbe", "startupProbe", "resources", "nodeSelector", "affinity", "tolerations", "topologySpreadConstraints", "volumes", "volumeMounts"},
 		Requires:   []string{"serviceaccount"},
 	},
 	{
@@ -58,7 +61,7 @@ var resources = []Resource{
 		File:       "statefulset.yaml",
 		Summary:    "Stateful workload with volumeClaimTemplates and a headless Service",
 		APIVersion: "apps/v1",
-		ValuesKeys: []string{"replicaCount", "image", "imagePullSecrets", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "resources", "livenessProbe", "readinessProbe", "nodeSelector", "tolerations", "affinity", "env", "persistence", "updateStrategy"},
+		ValuesKeys: []string{"replicaCount", "podManagementPolicy", "updateStrategy", "terminationGracePeriodSeconds", "image", "imagePullSecrets", "containerPort", "env", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "livenessProbe", "readinessProbe", "resources", "nodeSelector", "affinity", "tolerations", "volumes", "volumeMounts", "persistence"},
 		Requires:   []string{"serviceaccount", "service"},
 	},
 	{
@@ -67,7 +70,7 @@ var resources = []Resource{
 		File:       "daemonset.yaml",
 		Summary:    "Node-local workload with host tolerations",
 		APIVersion: "apps/v1",
-		ValuesKeys: []string{"image", "imagePullSecrets", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "resources", "nodeSelector", "tolerations", "env", "updateStrategy"},
+		ValuesKeys: []string{"updateStrategy", "image", "imagePullSecrets", "hostNetwork", "env", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "resources", "nodeSelector", "volumes", "volumeMounts", "tolerations"},
 		Requires:   []string{"serviceaccount"},
 	},
 	{
@@ -76,7 +79,7 @@ var resources = []Resource{
 		File:       "cronjob.yaml",
 		Summary:    "Scheduled job with concurrency policy and history limits",
 		APIVersion: "batch/v1",
-		ValuesKeys: []string{"image", "imagePullSecrets", "cronjob", "podSecurityContext", "securityContext", "resources", "nodeSelector", "tolerations", "affinity", "env"},
+		ValuesKeys: []string{"cronjob", "image", "imagePullSecrets", "env", "podAnnotations", "podSecurityContext", "securityContext", "resources", "nodeSelector", "tolerations"},
 		Requires:   []string{"serviceaccount"},
 	},
 	{
