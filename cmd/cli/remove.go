@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"github.com/somaz94/helm-chart-kit/internal/catalog"
 	"github.com/somaz94/helm-chart-kit/internal/chart"
 	"github.com/somaz94/helm-chart-kit/internal/scaffold"
 	"github.com/spf13/cobra"
@@ -34,8 +33,22 @@ by accident.`,
   hck remove hpa pdb --dry-run
   hck remove service --force
   hck rm servicemonitor --chart ./charts/payments-api`,
-		ValidArgsFunction: func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-			return catalog.ResourceNames(), cobra.ShellCompDirectiveNoFileComp
+		// Only what the chart has: completing a name that is not there offers
+		// the user an error, which is not what a completion is for.
+		ValidArgsFunction: func(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+			c, err := chartFromFlag(cmd)
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			resources, err := scaffold.ChartResources(c)
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			out := make([]string, 0, len(resources))
+			for _, r := range resources {
+				out = append(out, r.Name)
+			}
+			return out, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := chart.Find(opts.chartDir)

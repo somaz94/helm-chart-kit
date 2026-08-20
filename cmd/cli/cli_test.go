@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1505,8 +1506,20 @@ func TestSync(t *testing.T) {
 	chartDir := filepath.Join(dir, "demo")
 
 	out := mustRun(t, "sync", "--chart", chartDir)
-	if !strings.Contains(out, "every template is what hck generates") {
+	if !strings.Contains(out, "every generated file is what hck writes") {
 		t.Fatalf("a chart hck just wrote already differs from hck:\n%s", out)
+	}
+	// The skeleton is compared too. It was not, once, and an hck that changed
+	// _helpers.tpl or .helmignore left every existing chart quietly behind.
+	for _, want := range []string{"templates/_helpers.tpl", ".helmignore", "ci/install-values.yaml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sync does not compare %s:\n%s", want, out)
+		}
+	}
+	// Anchored to the path column: "ci/install-values.yaml" ends in
+	// "values.yaml" and is a file hck does own.
+	if authorsFileRE.MatchString(out) {
+		t.Errorf("sync compares a file the author maintains:\n%s", out)
 	}
 	mustRun(t, "sync", "--chart", chartDir, "--check")
 
@@ -1557,6 +1570,46 @@ func TestSyncWriteAll(t *testing.T) {
 	}
 }
 
+// A skeleton file hck owns drifts the same way a resource template does, and
+// a missing one is put back rather than reported forever.
+func TestSyncCoversTheChartSkeleton(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir, "--preset", "worker")
+	chartDir := filepath.Join(dir, "demo")
+
+	appendToFile(t, filepath.Join(chartDir, "templates", "_helpers.tpl"), "\n{{/* an older helper set */}}\n")
+	if err := os.Remove(filepath.Join(chartDir, "ci", "install-values.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	out := mustRun(t, "sync", "--chart", chartDir)
+	if !strings.Contains(out, "no longer here") {
+		t.Errorf("a deleted skeleton file was not reported:\n%s", out)
+	}
+	if _, err := run(t, "sync", "--chart", chartDir, "--check"); err == nil {
+		t.Error("--check passed a chart whose skeleton differs")
+	}
+
+	mustRun(t, "sync", "--chart", chartDir, "--write", "--all")
+	mustRun(t, "sync", "--chart", chartDir, "--check")
+	if _, err := os.Stat(filepath.Join(chartDir, "ci", "install-values.yaml")); err != nil {
+		t.Error("the missing skeleton file was not put back")
+	}
+	body, err := os.ReadFile(filepath.Join(chartDir, "templates", "_helpers.tpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "an older helper set") {
+		t.Error("--write did not take hck's version of the helper set")
+	}
+
+	// Naming a skeleton file directly works too — the report prints its path,
+	// so that is what the reader has to be able to type.
+	appendToFile(t, filepath.Join(chartDir, ".helmignore"), "\n# mine\n")
+	mustRun(t, "sync", "--chart", chartDir, "--write", ".helmignore")
+	mustRun(t, "sync", "--chart", chartDir, "--check")
+}
+
 // --write overwrites, so the ways of asking for it that mean two things at
 // once are refused rather than guessed at.
 func TestSyncRefusesAmbiguousFlags(t *testing.T) {
@@ -1586,4 +1639,67 @@ func appendToFile(t *testing.T, path, text string) {
 	if _, err := f.WriteString(text); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// authorsFileRE matches a report line whose path is exactly Chart.yaml or
+// values.yaml — the two files hck writes once and does not own afterwards.
+var authorsFileRE = regexp.MustCompile(`(?m)^\s+[=~!] (Chart\.yaml|values\.yaml)\s`)
+
+// Completion is only useful if it offers what this chart actually has: a name
+// the chart does not carry completes to an error, which is not what a
+// completion is for.
+func TestCompletionFollowsTheChart(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir, "--preset", "worker")
+	chartDir := filepath.Join(dir, "demo")
+
+	// cobra drives completion through the hidden __complete command, which is
+	// the same path a shell takes.
+	out := mustRun(t, "__complete", "remove", "--chart", chartDir, "")
+	for _, want := range []string{"deployment", "configmap", "serviceaccount"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("remove does not complete %q, which the chart has:\n%s", want, out)
+		}
+	}
+	for _, notThere := range []string{"ingress", "statefulset", "grafanadashboard"} {
+		if completionOffers(out, notThere) {
+			t.Errorf("remove completes %q, which the chart does not have:\n%s", notThere, out)
+		}
+	}
+
+	out = mustRun(t, "__complete", "sync", "--chart", chartDir, "")
+	for _, want := range []string{"deployment", "templates/_helpers.tpl", ".helmignore"} {
+		if !completionOffers(out, want) {
+			t.Errorf("sync does not complete %q:\n%s", want, out)
+		}
+	}
+	for _, notThere := range []string{"Chart.yaml", "values.yaml"} {
+		if completionOffers(out, notThere) {
+			t.Errorf("sync completes %q, a file the author maintains:\n%s", notThere, out)
+		}
+	}
+
+	// Pointed somewhere that is not a chart, both offer nothing rather than
+	// an error a shell would print in the middle of a command line.
+	for _, cmd := range []string{"remove", "sync"} {
+		out, err := run(t, "__complete", cmd, "--chart", t.TempDir(), "")
+		if err != nil {
+			t.Errorf("%s completion outside a chart: %v", cmd, err)
+		}
+		if completionOffers(out, "deployment") {
+			t.Errorf("%s completed a resource outside a chart:\n%s", cmd, out)
+		}
+	}
+}
+
+// completionOffers reports whether a candidate is a whole line of cobra's
+// completion output. Substring matching would count "ci/install-values.yaml"
+// as an offer of "values.yaml".
+func completionOffers(out, candidate string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == candidate {
+			return true
+		}
+	}
+	return false
 }

@@ -47,6 +47,8 @@ These are load-bearing. Breaking one is a defect, not a style choice.
 
 **`hck sync` cannot tell a local edit from an hck template that moved on.** Both are simply not the bytes `render.ResourceTemplate` produces now, and `scaffold.Drift` reports exactly that much. This is why the default is a report, why `--write` takes resource names, and why `--write` with neither names nor `--all` is an error rather than a guess. `Unreadable` is a third state on purpose: reporting an unreadable file as edited would invite `--write` to overwrite it.
 
+**`hck sync` compares the chart skeleton too, except the two files the author owns.** `scaffold.skeletonDrift` walks `render.ChartFiles()` and compares everything not listed in `skeletonNotOwned` — so a file added to `templates/chart/` is picked up by default, which is the right default and the dangerous one. `Chart.yaml` grows dependencies and maintainers; `values.yaml` is append-only. Comparing either would report drift on every chart that ever grew, and `--write` would delete what hck never wrote. `TestTheSkeletonSetIsADecision` pins the set so adding a skeleton file forces that call, and `TestTheAuthorsFilesAreNotCompared` holds the two exclusions. This gap was real: `.helmignore` gained a line and `_helpers.tpl` is what every template calls into, and neither was ever compared.
+
 **Templates use `[[ ]]`, Helm uses `{{ }}`.** The generation layer's delimiters are set in `internal/render`. A template rendering with a `[[` still in it is caught by `TestEveryCatalogResourceRenders`.
 
 **`//go:embed all:templates`, not `//go:embed templates`.** Without `all:`, embed silently drops every path segment starting with `_` or `.` — which is exactly `templates/chart/templates/_helpers.tpl`.

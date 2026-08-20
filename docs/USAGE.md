@@ -143,7 +143,7 @@ When the chart carries a `values.schema.json`, the plan says one more thing. The
 
 ## hck sync
 
-Report which of a chart's generated templates differ from what this `hck` would write for them today.
+Report which of a chart's generated files differ from what this `hck` would write for them today.
 
 ```bash
 hck sync [resource...] [flags]
@@ -174,6 +174,22 @@ sync demo
 What it cannot tell you is why. A template you edited and a template hck improved in a later version are the same bytes from here — both are simply not what hck generates now. That is why the default is a report, why `--write` takes names, and why `--write` with no names and no `--all` is refused: the answer to "should this file change?" belongs to whoever edited it.
 
 `--write` overwrites. Read the difference first; a chart under version control makes that easy and one without it makes this unrecoverable.
+
+
+### What it compares
+
+The resource templates, and the four skeleton files hck owns outright:
+
+| File | Why it is compared |
+|---|---|
+| `templates/_helpers.tpl` | Every resource template calls into it. An hck that adds a helper leaves an older chart rendering against a set that does not have it. |
+| `templates/NOTES.txt` | Printed on every install and upgrade. |
+| `.helmignore` | Decides what a package sweeps up. |
+| `ci/install-values.yaml` | What makes the chart checkable at all, since `image.tag` has no fallback. |
+
+`Chart.yaml` and `values.yaml` are deliberately not compared. The first is yours to maintain — it grows dependencies, maintainers and a version that moves on every change — and the second is only ever appended to. Regenerating either would report drift that is not drift, and `--write` would delete the parts hck never wrote.
+
+A skeleton file that is simply gone is reported as such and put back by `--write`, because it carries no values. A resource template that is gone is not: writing it would give the chart a resource whose `values.yaml` keys are not there, and that is what `hck add` is for.
 
 <br/>
 

@@ -309,6 +309,24 @@ jobs:
             exit 1
           fi
 
+          # The skeleton is compared too — the gap that mattered, since
+          # _helpers.tpl is what every resource template calls into and
+          # nothing else in the chart would ever notice it moving on.
+          printf '\n{{/* an older helper set */}}\n' >> "$chart/templates/_helpers.tpl"
+          rm "$chart/ci/install-values.yaml"
+          report=$(hck sync --chart "$chart")
+          [[ "$report" == *"templates/_helpers.tpl"* ]] || { echo "FAIL: sync does not compare _helpers.tpl"; exit 1; }
+          [[ "$report" == *"no longer here"* ]] || { echo "FAIL: a deleted skeleton file was not reported"; exit 1; }
+          # ...but not the two files the author owns. Anchored to the path
+          # column: ci/install-values.yaml ends in values.yaml.
+          if printf '%s' "$report" | grep -qE '^[[:space:]]+[=~!] (Chart\.yaml|values\.yaml)[[:space:]]'; then
+            echo "FAIL: sync compares a file the chart author maintains"
+            exit 1
+          fi
+          hck sync --chart "$chart" --write --all >/dev/null
+          hck sync --chart "$chart" --check >/dev/null
+          [ -f "$chart/ci/install-values.yaml" ] || { echo "FAIL: the missing skeleton file was not put back"; exit 1; }
+
           # And what it does remove is the template, not the values.
           before=$(wc -c < "$chart/values.yaml")
           hck remove hpa --chart "$chart" >/dev/null

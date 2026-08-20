@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
@@ -25,13 +26,20 @@ const (
 	// template that moved on is not something this can tell — both look
 	// identical from here, and saying so is more useful than guessing.
 	Edited State = "edited"
-	// Unreadable means the file could not be read. Reported rather than
-	// treated as edited: a permissions problem is not a decision anybody made.
+	// Missing means hck wrote the file and it is no longer there.
+	Missing State = "missing"
+	// Unreadable means the file is there and could not be read. Reported
+	// rather than treated as edited: a permissions problem is not a decision
+	// anybody made, and calling it drift would invite --write to overwrite a
+	// file nobody has seen.
 	Unreadable State = "unreadable"
 )
 
-// Drift is one resource's comparison.
+// Drift is one file's comparison.
 type Drift struct {
+	// Resource names the thing "hck sync" refers to: a catalog resource name,
+	// or the file's own path for a skeleton file, which is what the report
+	// prints either way.
 	Resource string
 	// Path is the file inside the chart, slash-separated.
 	Path  string
@@ -43,6 +51,12 @@ type Drift struct {
 	Have []byte
 	// Err explains an Unreadable.
 	Err error
+	// Skeleton marks a chart-skeleton file rather than a catalog resource.
+	// The difference matters to --write: a skeleton file carries no values, so
+	// putting a missing one back is a repair. A missing resource template is a
+	// resource the chart does not have, and adding one is "hck add", where the
+	// values it needs are appended too.
+	Skeleton bool
 }
 
 // AnyDrifted reports whether any resource's file is not what hck writes today.
@@ -64,16 +78,71 @@ func DriftOf(c *chart.Chart, r catalog.Resource) (Drift, error) {
 	}
 	d := Drift{Resource: r.Name, Path: filepath.ToSlash(filepath.Join("templates", r.File)), Want: want}
 
-	have, err := os.ReadFile(c.TemplatePath(r.File))
+	compare(&d, c.TemplatePath(r.File))
+	return d, nil
+}
+
+// compare fills in a Drift's state by reading the file it describes.
+func compare(d *Drift, path string) {
+	have, err := os.ReadFile(path)
 	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		d.State, d.Err = Missing, err
 	case err != nil:
 		d.State, d.Err = Unreadable, err
-	case bytes.Equal(have, want):
+	case bytes.Equal(have, d.Want):
 		d.State, d.Have = Current, have
 	default:
 		d.State, d.Have = Edited, have
 	}
-	return d, nil
+}
+
+// skeletonNotOwned are the chart-skeleton files hck writes once and does not
+// own afterwards, with the reason. Everything else in the skeleton is compared
+// by "hck sync", and TestSkeletonIsEitherComparedOrExcused makes sure a file
+// added to the embedded tree cannot quietly escape both.
+//
+// The distinction is not a detail. Regenerating either of these would report
+// drift on every chart that ever grew, and --write would delete the parts hck
+// never wrote.
+var skeletonNotOwned = map[string]string{
+	"Chart.yaml":  "the author maintains it: dependencies, maintainers, keywords, and a version that moves on every change",
+	"values.yaml": "it is appended to and never rewritten, so the skeleton is only ever the first few lines of it",
+}
+
+// skeletonDrift compares the chart-skeleton files hck owns outright.
+//
+// These are the ones with no way to notice: _helpers.tpl is what every
+// resource template calls into, and .helmignore decides what a package
+// sweeps up. Neither is a resource, so neither was ever compared, and an
+// hck that changed one left every existing chart quietly behind.
+func skeletonDrift(c *chart.Chart) ([]Drift, error) {
+	names, err := render.ChartFiles()
+	if err != nil {
+		return nil, err
+	}
+	// By the name the file takes in the chart, not the one it has in the
+	// embedded tree, so the report reads in the order someone would look.
+	slices.SortFunc(names, func(a, b string) int {
+		return strings.Compare(outputName(a), outputName(b))
+	})
+
+	data := DataFor(c)
+	out := make([]Drift, 0, len(names))
+	for _, name := range names {
+		if _, excused := skeletonNotOwned[name]; excused {
+			continue
+		}
+		want, err := render.ChartFile(name, data)
+		if err != nil {
+			return nil, err
+		}
+		path := outputName(name)
+		d := Drift{Resource: path, Path: path, Want: want, Skeleton: true}
+		compare(&d, filepath.Join(c.Dir, filepath.FromSlash(path)))
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 // DriftOfChart compares every catalog resource the chart carries.
@@ -94,7 +163,13 @@ func DriftOfChart(c *chart.Chart) ([]Drift, error) {
 		}
 		out = append(out, d)
 	}
-	return out, nil
+	// Resources first, then the skeleton: the resources are what someone came
+	// to look at, and the skeleton is what they did not know to.
+	skel, err := skeletonDrift(c)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, skel...), nil
 }
 
 // PlanRemove builds the plan for taking resources out of a chart.
@@ -194,13 +269,20 @@ func orphanedKeys(r catalog.Resource, present, going map[string]bool) []string {
 	return out
 }
 
-// WriteTemplate replaces one resource's template with what hck generates now.
-// It is what "hck sync --write" applies, and it refuses a file that is not
-// there rather than creating one — adding a resource is "hck add".
+// WriteTemplate replaces one file with what hck generates for it now.
+//
+// A missing skeleton file is put back — it carries no values, so restoring
+// _helpers.tpl or .helmignore is a repair. A missing resource template is not:
+// writing it would give the chart a resource whose values.yaml keys are not
+// there, and adding a resource is "hck add".
 func WriteTemplate(c *chart.Chart, d Drift) error {
-	dest := c.TemplatePath(filepath.FromSlash(trimTemplates(d.Path)))
-	if _, err := os.Stat(dest); errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("%s is not in the chart — run: hck add %s", d.Path, d.Resource)
+	dest := filepath.Join(c.Dir, filepath.FromSlash(d.Path))
+	// Checked against the disk rather than against d.State, which was read
+	// before this call and can be older than it looks.
+	if !d.Skeleton {
+		if _, err := os.Stat(dest); errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%s is not in the chart — run: hck add %s", d.Path, d.Resource)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
@@ -209,13 +291,4 @@ func WriteTemplate(c *chart.Chart, d Drift) error {
 		return fmt.Errorf("write %s: %w", d.Path, err)
 	}
 	return nil
-}
-
-// trimTemplates drops the leading "templates/" a Drift path carries, since
-// Chart.TemplatePath adds it back.
-func trimTemplates(p string) string {
-	if rest, ok := strings.CutPrefix(p, "templates/"); ok {
-		return rest
-	}
-	return p
 }
