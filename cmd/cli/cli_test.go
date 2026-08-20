@@ -758,7 +758,7 @@ func TestCheckAppliesThePlatformOverlay(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm is not on PATH")
 	}
-	for _, platform := range catalog.PlatformNames() {
+	for _, platform := range catalog.OverlayNames(catalog.PlatformAxis) {
 		t.Run(platform, func(t *testing.T) {
 			parent := t.TempDir()
 			mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--platform", platform, "--schema")
@@ -1067,7 +1067,7 @@ func TestEveryOverlayChangesTheRender(t *testing.T) {
 
 	base := mustRun(t, "check", "--chart", dir, "--print")
 
-	for _, p := range catalog.Platforms() {
+	for _, p := range catalog.Overlays(catalog.PlatformAxis) {
 		t.Run("platform/"+p.Name, func(t *testing.T) {
 			mustRun(t, "platform", "add", p.Name, "--chart", dir, "--force")
 			got := mustRun(t, "check", "--chart", dir, "--platform", p.Name, "--print")
@@ -1076,7 +1076,7 @@ func TestEveryOverlayChangesTheRender(t *testing.T) {
 			}
 		})
 	}
-	for _, e := range catalog.Environments() {
+	for _, e := range catalog.Overlays(catalog.EnvironmentAxis) {
 		t.Run("env/"+e.Name, func(t *testing.T) {
 			mustRun(t, "env", "add", e.Name, "--chart", dir, "--force")
 			got := mustRun(t, "check", "--chart", dir, "--env", e.Name, "--print")
@@ -1107,10 +1107,10 @@ func TestOverlayOrderDoesNotChangeTheRender(t *testing.T) {
 		}
 	}
 	mustRun(t, append([]string{"add", "--chart", dir}, extra...)...)
-	for _, p := range catalog.Platforms() {
+	for _, p := range catalog.Overlays(catalog.PlatformAxis) {
 		mustRun(t, "platform", "add", p.Name, "--chart", dir, "--force")
 	}
-	for _, e := range catalog.Environments() {
+	for _, e := range catalog.Overlays(catalog.EnvironmentAxis) {
 		mustRun(t, "env", "add", e.Name, "--chart", dir, "--force")
 	}
 
@@ -1127,8 +1127,8 @@ func TestOverlayOrderDoesNotChangeTheRender(t *testing.T) {
 		return string(out)
 	}
 
-	for _, p := range catalog.Platforms() {
-		for _, e := range catalog.Environments() {
+	for _, p := range catalog.Overlays(catalog.PlatformAxis) {
+		for _, e := range catalog.Overlays(catalog.EnvironmentAxis) {
 			t.Run(p.Name+"+"+e.Name, func(t *testing.T) {
 				if render(p.ValuesFile(), e.ValuesFile()) != render(e.ValuesFile(), p.ValuesFile()) {
 					t.Error("the two overlays disagree about a key, so the render depends on -f order")
@@ -1227,7 +1227,7 @@ func TestCheckAppliesTheEnvOverlay(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm is not on PATH")
 	}
-	for _, env := range catalog.EnvironmentNames() {
+	for _, env := range catalog.OverlayNames(catalog.EnvironmentAxis) {
 		t.Run(env, func(t *testing.T) {
 			parent := t.TempDir()
 			mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--env", env, "--schema")

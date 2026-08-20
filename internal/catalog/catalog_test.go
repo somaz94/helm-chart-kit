@@ -234,68 +234,87 @@ func TestPlatformOverlaysMatchTheCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	known := map[string]bool{}
-	for _, p := range Platforms() {
-		known[p.Name] = true
-	}
-	for _, e := range Environments() {
-		known[e.Name] = true
+	for _, o := range AllOverlays() {
+		known[o.Name] = true
 	}
 	for _, name := range found {
 		if !known[name] {
-			t.Errorf("templates carry values-%s.yaml.tmpl but no platform %q is declared", name, name)
+			t.Errorf("templates carry values-%s.yaml.tmpl but no overlay %q is declared", name, name)
 		}
 	}
-	// And every declared platform has to actually differ somewhere, or it is
+	// And every declared overlay has to actually differ somewhere, or it is
 	// a name that produces an empty file.
-	for _, p := range Platforms() {
-		if !slices.Contains(found, p.Name) {
-			t.Errorf("platform %q is declared but no resource has a values-%s.yaml.tmpl", p.Name, p.Name)
-		}
-	}
-	for _, e := range Environments() {
-		if !slices.Contains(found, e.Name) {
-			t.Errorf("environment %q is declared but no resource has a values-%s.yaml.tmpl", e.Name, e.Name)
+	for _, o := range AllOverlays() {
+		if !slices.Contains(found, o.Name) {
+			t.Errorf("%s %q is declared but no resource has a values-%s.yaml.tmpl", o.Axis, o.Name, o.Name)
 		}
 	}
 }
 
-// Platforms and environments share one file-name space inside a chart, so a
-// name used twice would have one overlay silently overwrite the other.
+// Both axes share one file-name space inside a chart, so a name used twice
+// would have one overlay silently overwrite the other. Walking every overlay
+// at once rather than one axis against the other is what keeps this honest
+// when a third axis arrives.
 func TestPlatformAndEnvironmentNamesDoNotCollide(t *testing.T) {
 	seen := map[string]string{}
-	for _, p := range Platforms() {
-		seen[p.ValuesFile()] = "platform " + p.Name
-	}
-	for _, e := range Environments() {
-		if prev, ok := seen[e.ValuesFile()]; ok {
-			t.Errorf("environment %s and %s both write %s", e.Name, prev, e.ValuesFile())
+	for _, o := range AllOverlays() {
+		who := string(o.Axis) + " " + o.Name
+		if prev, ok := seen[o.ValuesFile()]; ok {
+			t.Errorf("%s and %s both write %s", who, prev, o.ValuesFile())
 		}
+		seen[o.ValuesFile()] = who
+	}
+}
+
+// An axis names itself one way in prose and another on the command line: the
+// noun is "environment", the subcommand is "env". Messages that mix the two
+// send the reader to a command that does not exist.
+func TestAxisCommand(t *testing.T) {
+	if got := PlatformAxis.Command(); got != "platform" {
+		t.Errorf("PlatformAxis.Command() = %q, want %q", got, "platform")
+	}
+	if got := EnvironmentAxis.Command(); got != "env" {
+		t.Errorf("EnvironmentAxis.Command() = %q, want %q", got, "env")
+	}
+}
+
+// A lookup is scoped to one axis, so a real overlay named on the wrong one is
+// reported as unknown rather than quietly written.
+func TestLookupOverlayIsScopedToItsAxis(t *testing.T) {
+	if _, ok := LookupOverlay(PlatformAxis, "prod"); ok {
+		t.Error("prod found on the platform axis")
+	}
+	if _, ok := LookupOverlay(EnvironmentAxis, "aws"); ok {
+		t.Error("aws found on the environment axis")
+	}
+	if len(AllOverlays()) != len(Overlays(PlatformAxis))+len(Overlays(EnvironmentAxis)) {
+		t.Error("AllOverlays and the per-axis lists disagree")
 	}
 }
 
 func TestEnvironmentMetadata(t *testing.T) {
-	for _, e := range Environments() {
+	for _, e := range Overlays(EnvironmentAxis) {
 		if e.Summary == "" {
 			t.Errorf("%s has an empty Summary", e.Name)
 		}
 		if want := "values-" + e.Name + ".yaml"; e.ValuesFile() != want {
 			t.Errorf("ValuesFile = %q, want %q", e.ValuesFile(), want)
 		}
-		if _, ok := LookupEnvironment(e.Name); !ok {
+		if _, ok := LookupOverlay(EnvironmentAxis, e.Name); !ok {
 			t.Errorf("%s is listed but not found", e.Name)
 		}
 	}
-	if _, ok := LookupEnvironment("nope"); ok {
+	if _, ok := LookupOverlay(EnvironmentAxis, "nope"); ok {
 		t.Error("unknown environment reported as found")
 	}
-	if len(EnvironmentNames()) != len(Environments()) {
-		t.Error("EnvironmentNames and Environments disagree")
+	if len(OverlayNames(EnvironmentAxis)) != len(Overlays(EnvironmentAxis)) {
+		t.Error("OverlayNames and Overlays disagree on the environment axis")
 	}
 }
 
 func TestPlatformMetadata(t *testing.T) {
 	seen := map[string]bool{}
-	for _, p := range Platforms() {
+	for _, p := range Overlays(PlatformAxis) {
 		if p.Summary == "" || len(p.Needs) == 0 {
 			t.Errorf("%s has an empty Summary or Needs", p.Name)
 		}
@@ -307,11 +326,11 @@ func TestPlatformMetadata(t *testing.T) {
 			t.Errorf("ValuesFile = %q, want %q", p.ValuesFile(), want)
 		}
 	}
-	if _, ok := LookupPlatform("nope"); ok {
+	if _, ok := LookupOverlay(PlatformAxis, "nope"); ok {
 		t.Error("unknown platform reported as found")
 	}
-	if len(PlatformNames()) != len(Platforms()) {
-		t.Error("PlatformNames and Platforms disagree")
+	if len(OverlayNames(PlatformAxis)) != len(Overlays(PlatformAxis)) {
+		t.Error("OverlayNames and Overlays disagree on the platform axis")
 	}
 }
 
@@ -381,8 +400,8 @@ func TestPlatformOverlayKeysBelongToTheResource(t *testing.T) {
 }
 
 func TestLookupPlatformKnown(t *testing.T) {
-	for _, name := range PlatformNames() {
-		if _, ok := LookupPlatform(name); !ok {
+	for _, name := range OverlayNames(PlatformAxis) {
+		if _, ok := LookupOverlay(PlatformAxis, name); !ok {
 			t.Errorf("%s is listed but not found", name)
 		}
 	}
@@ -390,8 +409,8 @@ func TestLookupPlatformKnown(t *testing.T) {
 
 // overlaySuffixes is every axis an overlay can be named for.
 func overlaySuffixes() []string {
-	out := append([]string{}, PlatformNames()...)
-	return append(out, EnvironmentNames()...)
+	out := append([]string{}, OverlayNames(PlatformAxis)...)
+	return append(out, OverlayNames(EnvironmentAxis)...)
 }
 
 // A platform overlay describes wiring; an environment overlay decides what is
@@ -400,7 +419,7 @@ func overlaySuffixes() []string {
 // yes" rendered differently depending on which came last.
 func TestPlatformOverlaysDoNotToggle(t *testing.T) {
 	for _, r := range Resources() {
-		for _, p := range Platforms() {
+		for _, p := range Overlays(PlatformAxis) {
 			if !render.HasOverlayValues(r.Name, p.Name) {
 				continue
 			}

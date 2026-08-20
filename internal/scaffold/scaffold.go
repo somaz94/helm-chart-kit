@@ -14,7 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
@@ -157,7 +157,7 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(skeleton)
+	slices.Sort(skeleton)
 
 	var baseValues []byte
 	for _, name := range skeleton {
@@ -172,35 +172,9 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 		plan.Files = append(plan.Files, File{Path: outputName(name), Action: Create, Content: content})
 	}
 
-	frags := make([]values.Fragment, 0, len(resources))
-	for _, r := range resources {
-		tmpl, err := render.ResourceTemplate(r.Name, data)
-		if err != nil {
-			return nil, err
-		}
-		plan.Files = append(plan.Files, File{
-			Path:    filepath.ToSlash(filepath.Join("templates", r.File)),
-			Action:  Create,
-			Content: tmpl,
-		})
-		frag, err := render.ResourceValues(r.Name, data)
-		if err != nil {
-			return nil, err
-		}
-		frags = append(frags, values.Fragment{Resource: r.Name, Body: string(frag)})
-
-		// The same advice "hck add" gives. A preset satisfies its own
-		// resources' requirements, but --with can name one it does not:
-		// "hck new x --preset cronjob --with referencegrant" has no Service.
-		for _, req := range r.Requires {
-			if !contains(names(resources), req) {
-				plan.Notes = append(plan.Notes,
-					fmt.Sprintf("%s expects %s, which this chart does not have — run: hck add %s", r.Name, req, req))
-			}
-		}
-		if r.Optional {
-			plan.Notes = append(plan.Notes, optionalNote(r))
-		}
+	frags, err := planResources(plan, data, resources, resourceState{})
+	if err != nil {
+		return nil, err
 	}
 
 	merged, res, err := values.Merge(baseValues, frags)
@@ -218,40 +192,34 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 		plan.Files = append(plan.Files, File{Path: SchemaFile, Action: Create, Content: doc})
 	}
 
-	for _, name := range opts.Platforms {
-		p, ok := catalog.LookupPlatform(name)
-		if !ok {
-			return nil, fmt.Errorf("unknown platform %q (known: %s)", name, strings.Join(catalog.PlatformNames(), ", "))
+	// Platforms first, then environments: both write into one file-name space
+	// and the order they are generated in is the order they are meant to be
+	// passed to helm.
+	for _, axis := range []catalog.Axis{catalog.PlatformAxis, catalog.EnvironmentAxis} {
+		requested := opts.Platforms
+		if axis == catalog.EnvironmentAxis {
+			requested = opts.Environments
 		}
-		overlay, ok, err := BuildPlatformValues(data, resources, p)
-		if err != nil {
-			return nil, err
+		for _, name := range requested {
+			o, ok := catalog.LookupOverlay(axis, name)
+			if !ok {
+				return nil, fmt.Errorf("unknown %s %q (known: %s)", axis, name, strings.Join(catalog.OverlayNames(axis), ", "))
+			}
+			overlay, ok, err := BuildOverlayValues(data, resources, o)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				plan.Notes = append(plan.Notes,
+					noOverlayNote(o))
+				continue
+			}
+			plan.Files = append(plan.Files, File{Path: o.ValuesFile(), Action: Create, Content: overlay})
+			if len(o.Needs) > 0 {
+				plan.Notes = append(plan.Notes,
+					fmt.Sprintf("%s expects the cluster to have: %s", o.Name, strings.Join(o.Needs, ", ")))
+			}
 		}
-		if !ok {
-			plan.Notes = append(plan.Notes,
-				fmt.Sprintf("nothing in this chart differs on %s, so no %s was written", p.Name, p.ValuesFile()))
-			continue
-		}
-		plan.Files = append(plan.Files, File{Path: p.ValuesFile(), Action: Create, Content: overlay})
-		plan.Notes = append(plan.Notes,
-			fmt.Sprintf("%s expects the cluster to have: %s", p.Name, strings.Join(p.Needs, ", ")))
-	}
-
-	for _, name := range opts.Environments {
-		e, ok := catalog.LookupEnvironment(name)
-		if !ok {
-			return nil, fmt.Errorf("unknown environment %q (known: %s)", name, strings.Join(catalog.EnvironmentNames(), ", "))
-		}
-		overlay, ok, err := BuildEnvironmentValues(data, resources, e)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			plan.Notes = append(plan.Notes,
-				fmt.Sprintf("nothing in this chart differs at %s, so no %s was written", e.Name, e.ValuesFile()))
-			continue
-		}
-		plan.Files = append(plan.Files, File{Path: e.ValuesFile(), Action: Create, Content: overlay})
 	}
 
 	return plan, nil
@@ -281,44 +249,13 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 	present := presentResources(existingTemplates)
 	existing := resourcesFrom(present)
 
-	frags := make([]values.Fragment, 0, len(resources))
-	for _, r := range resources {
-		if c.HasTemplate(r.File) && !force {
-			plan.Files = append(plan.Files, File{
-				Path:   filepath.ToSlash(filepath.Join("templates", r.File)),
-				Action: Skip,
-				Reason: "already exists",
-			})
-			continue
-		}
-		tmpl, err := render.ResourceTemplate(r.Name, data)
-		if err != nil {
-			return nil, err
-		}
-		action := Create
-		if c.HasTemplate(r.File) {
-			action = Update
-		}
-		plan.Files = append(plan.Files, File{
-			Path:    filepath.ToSlash(filepath.Join("templates", r.File)),
-			Action:  action,
-			Content: tmpl,
-		})
-		frag, err := render.ResourceValues(r.Name, data)
-		if err != nil {
-			return nil, err
-		}
-		frags = append(frags, values.Fragment{Resource: r.Name, Body: string(frag)})
-
-		for _, req := range r.Requires {
-			if !present[req] && !contains(names(resources), req) {
-				plan.Notes = append(plan.Notes,
-					fmt.Sprintf("%s expects %s, which this chart does not have — run: hck add %s", r.Name, req, req))
-			}
-		}
-		if r.Optional {
-			plan.Notes = append(plan.Notes, optionalNote(r))
-		}
+	frags, err := planResources(plan, data, resources, resourceState{
+		present: present,
+		hasFile: c.HasTemplate,
+		force:   force,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	current, err := c.Values()
@@ -360,6 +297,67 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 	}
 
 	return plan, nil
+}
+
+// resourceState is what the chart already looks like. The zero value describes
+// a chart that does not exist yet, which is what lets one loop serve both
+// "hck new" and "hck add".
+type resourceState struct {
+	// present holds the catalog names the chart already carries.
+	present map[string]bool
+	// hasFile reports whether templates/<file> is already there. Nil for a
+	// chart being created, where nothing is.
+	hasFile func(string) bool
+	// force rewrites a template that exists rather than skipping it.
+	force bool
+}
+
+// planResources appends one template file per resource to the plan, collects
+// the values fragments they contribute, and records the advisories they carry.
+//
+// One loop rather than one per command: creating a chart and adding to one
+// differ only in what is already on disk, and while this was written twice the
+// two copies disagreed about which advisories to print.
+func planResources(plan *Plan, data render.Data, resources []catalog.Resource, st resourceState) ([]values.Fragment, error) {
+	incoming := names(resources)
+	frags := make([]values.Fragment, 0, len(resources))
+	for _, r := range resources {
+		dest := filepath.ToSlash(filepath.Join("templates", r.File))
+		exists := st.hasFile != nil && st.hasFile(r.File)
+		if exists && !st.force {
+			plan.Files = append(plan.Files, File{Path: dest, Action: Skip, Reason: "already exists"})
+			continue
+		}
+		tmpl, err := render.ResourceTemplate(r.Name, data)
+		if err != nil {
+			return nil, err
+		}
+		action := Create
+		if exists {
+			action = Update
+		}
+		plan.Files = append(plan.Files, File{Path: dest, Action: action, Content: tmpl})
+
+		frag, err := render.ResourceValues(r.Name, data)
+		if err != nil {
+			return nil, err
+		}
+		frags = append(frags, values.Fragment{Resource: r.Name, Body: string(frag)})
+
+		// A preset satisfies its own resources' requirements, but --with can
+		// name one it does not: "hck new x --preset cronjob --with
+		// referencegrant" has no Service.
+		for _, req := range r.Requires {
+			if !st.present[req] && !slices.Contains(incoming, req) {
+				plan.Notes = append(plan.Notes,
+					fmt.Sprintf("%s expects %s, which this chart does not have — run: hck add %s", r.Name, req, req))
+			}
+		}
+		if r.Optional {
+			plan.Notes = append(plan.Notes, optionalNote(r))
+		}
+	}
+	return frags, nil
 }
 
 // SchemaIsStrictBytes reports whether a schema document closes its top level,
@@ -494,15 +492,6 @@ func names(rs []catalog.Resource) []string {
 	return out
 }
 
-func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
-}
-
 // DataFor builds the template substitution context from a chart on disk.
 func DataFor(c *chart.Chart) render.Data {
 	return render.Data{
@@ -526,13 +515,15 @@ const SchemaFile = "values.schema.json"
 // define: "persistence" belongs to the StatefulSet when the chart has one,
 // and to the PVC otherwise, which is exactly what the values merge decides.
 func canonicalOrder(rs []catalog.Resource) []catalog.Resource {
-	out := make([]catalog.Resource, len(rs))
-	copy(out, rs)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Workload != out[j].Workload {
-			return out[i].Workload
+	out := slices.Clone(rs)
+	slices.SortStableFunc(out, func(a, b catalog.Resource) int {
+		if a.Workload != b.Workload {
+			if a.Workload {
+				return -1
+			}
+			return 1
 		}
-		return out[i].Name < out[j].Name
+		return strings.Compare(a.Name, b.Name)
 	})
 	return out
 }
@@ -644,46 +635,46 @@ func buildOverlay(data render.Data, resources []catalog.Resource, suffix, header
 	return []byte(header + "\n" + body.String()), true, nil
 }
 
-// BuildPlatformValues assembles a platform overlay for a resource set.
-func BuildPlatformValues(data render.Data, resources []catalog.Resource, p catalog.Platform) ([]byte, bool, error) {
-	header := overlayHeader(data.ChartName, p.Summary, "-f "+p.ValuesFile(), p.Needs)
-	return buildOverlay(data, resources, p.Name, header)
-}
-
-// BuildEnvironmentValues assembles an environment overlay for a resource set.
+// BuildOverlayValues assembles one overlay for a resource set.
 //
-// The install line puts the environment last on purpose: overlays are applied
-// left to right, so the size the environment asks for wins over whatever a
-// platform overlay happened to set.
-func BuildEnvironmentValues(data render.Data, resources []catalog.Resource, e catalog.Environment) ([]byte, bool, error) {
-	header := overlayHeader(data.ChartName, e.Summary,
-		"[-f values-<platform>.yaml] -f "+e.ValuesFile(), nil)
-	return buildOverlay(data, resources, e.Name, header)
+// The environment install line puts the environment last on purpose: overlays
+// are applied left to right, so the size the environment asks for wins over
+// whatever a platform overlay happened to set.
+func BuildOverlayValues(data render.Data, resources []catalog.Resource, o catalog.Overlay) ([]byte, bool, error) {
+	install := "-f " + o.ValuesFile()
+	if o.Axis == catalog.EnvironmentAxis {
+		install = "[-f values-<platform>.yaml] " + install
+	}
+	return buildOverlay(data, resources, o.Name, overlayHeader(data.ChartName, o.Summary, install, o.Needs))
 }
 
-// ChartPlatforms reports which platform overlays a chart on disk carries.
+// ChartOverlays reports which of an axis's overlays a chart on disk carries.
 // Best effort: an overlay that cannot be stat'd is reported as absent, which
 // for a listing is the honest answer — "hck platform add" is where an
 // unreadable file has to be an error, and it is one there.
-func ChartPlatforms(c *chart.Chart) []catalog.Platform {
-	var out []catalog.Platform
-	for _, p := range catalog.Platforms() {
-		if _, err := os.Stat(filepath.Join(c.Dir, p.ValuesFile())); err == nil {
-			out = append(out, p)
+func ChartOverlays(c *chart.Chart, axis catalog.Axis) []catalog.Overlay {
+	var out []catalog.Overlay
+	for _, o := range catalog.Overlays(axis) {
+		if _, err := os.Stat(filepath.Join(c.Dir, o.ValuesFile())); err == nil {
+			out = append(out, o)
 		}
 	}
 	return out
 }
 
-// ChartEnvironments reports which environment overlays a chart on disk carries.
-func ChartEnvironments(c *chart.Chart) []catalog.Environment {
-	var out []catalog.Environment
-	for _, e := range catalog.Environments() {
-		if _, err := os.Stat(filepath.Join(c.Dir, e.ValuesFile())); err == nil {
-			out = append(out, e)
-		}
+// noOverlayNote explains an overlay that came out empty, which happens when
+// nothing the chart carries has a fragment for that name.
+//
+// The preposition follows the axis: a chart differs "on aws" but "at prod".
+// No preset reaches this today — every one carries a workload, and every
+// workload differs on every platform — so it is covered by a test directly
+// rather than through a generated chart.
+func noOverlayNote(o catalog.Overlay) string {
+	in := "on"
+	if o.Axis == catalog.EnvironmentAxis {
+		in = "at"
 	}
-	return out
+	return fmt.Sprintf("nothing in this chart differs %s %s, so no %s was written", in, o.Name, o.ValuesFile())
 }
 
 // optionalNote explains what an optional resource is waiting on. Most are

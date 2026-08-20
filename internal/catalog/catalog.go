@@ -6,7 +6,10 @@
 // template is a build-time mistake, not something a user can trigger.
 package catalog
 
-import "sort"
+import (
+	"slices"
+	"strings"
+)
 
 // Resource is one generatable Helm template plus the values it introduces.
 type Resource struct {
@@ -312,58 +315,61 @@ var presets = []Preset{
 	},
 }
 
-// Resources returns every known resource, ordered by name.
-func Resources() []Resource {
-	out := make([]Resource, len(resources))
-	copy(out, resources)
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+// entry is anything the catalog indexes by name. Resources, presets and
+// overlays are three lists asked the same three questions — list them, find
+// one, name them all — and the answers below are those questions written once
+// instead of once per list.
+type entry interface {
+	entryName() string
+}
+
+func (r Resource) entryName() string { return r.Name }
+func (p Preset) entryName() string   { return p.Name }
+
+// sorted copies a catalog list and orders it by name. The copy is the point:
+// the package variables are the source of truth and a caller that sorts in
+// place would reorder them for everyone else.
+func sorted[T entry](items []T) []T {
+	out := slices.Clone(items)
+	slices.SortFunc(out, func(a, b T) int { return strings.Compare(a.entryName(), b.entryName()) })
 	return out
 }
+
+// lookup finds one entry by name.
+func lookup[T entry](items []T, name string) (T, bool) {
+	for _, it := range items {
+		if it.entryName() == name {
+			return it, true
+		}
+	}
+	var zero T
+	return zero, false
+}
+
+// names lists every entry's name, ordered.
+func names[T entry](items []T) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.entryName())
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Resources returns every known resource, ordered by name.
+func Resources() []Resource { return sorted(resources) }
 
 // Presets returns every known preset, ordered by name.
-func Presets() []Preset {
-	out := make([]Preset, len(presets))
-	copy(out, presets)
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
-}
+func Presets() []Preset { return sorted(presets) }
 
 // LookupResource finds a resource by name.
-func LookupResource(name string) (Resource, bool) {
-	for _, r := range resources {
-		if r.Name == name {
-			return r, true
-		}
-	}
-	return Resource{}, false
-}
+func LookupResource(name string) (Resource, bool) { return lookup(resources, name) }
 
 // LookupPreset finds a preset by name.
-func LookupPreset(name string) (Preset, bool) {
-	for _, p := range presets {
-		if p.Name == name {
-			return p, true
-		}
-	}
-	return Preset{}, false
-}
+func LookupPreset(name string) (Preset, bool) { return lookup(presets, name) }
 
 // ResourceNames returns every resource name, ordered.
-func ResourceNames() []string {
-	out := make([]string, 0, len(resources))
-	for _, r := range resources {
-		out = append(out, r.Name)
-	}
-	sort.Strings(out)
-	return out
-}
+func ResourceNames() []string { return names(resources) }
 
 // PresetNames returns every preset name, ordered.
-func PresetNames() []string {
-	out := make([]string, 0, len(presets))
-	for _, p := range presets {
-		out = append(out, p.Name)
-	}
-	sort.Strings(out)
-	return out
-}
+func PresetNames() []string { return names(presets) }

@@ -2,7 +2,7 @@ package cli
 
 import (
 	"io"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/somaz94/helm-chart-kit/internal/scaffold"
@@ -21,7 +21,7 @@ func printPlan(w io.Writer, p *scaffold.Plan, dryRun bool) {
 
 	files := make([]scaffold.File, len(p.Files))
 	copy(files, p.Files)
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	slices.SortFunc(files, func(a, b scaffold.File) int { return strings.Compare(a.Path, b.Path) })
 
 	for _, f := range files {
 		switch f.Action {

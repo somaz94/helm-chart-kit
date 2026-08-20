@@ -135,13 +135,13 @@ func (q *prompter) interview(a *answers, p painter) error {
 	}
 	a.extra = splitList([]string{list})
 
-	q.say("\n  %s\n", p.dim("platforms: "+strings.Join(catalog.PlatformNames(), ", ")))
+	q.say("\n  %s\n", p.dim("platforms: "+strings.Join(catalog.OverlayNames(catalog.PlatformAxis), ", ")))
 	if list, err = q.ask("Platform overlays?", ""); err != nil {
 		return err
 	}
 	a.platforms = splitList([]string{list})
 
-	q.say("\n  %s\n", p.dim("environments: "+strings.Join(catalog.EnvironmentNames(), ", ")))
+	q.say("\n  %s\n", p.dim("environments: "+strings.Join(catalog.OverlayNames(catalog.EnvironmentAxis), ", ")))
 	if list, err = q.ask("Environment overlays?", ""); err != nil {
 		return err
 	}

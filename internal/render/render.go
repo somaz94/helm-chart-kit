@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"sort"
+	"slices"
 	"strings"
 	"text/template"
 )
@@ -144,7 +144,7 @@ func OverlaySuffixes() ([]string, error) {
 	for name := range seen {
 		out = append(out, name)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, nil
 }
 

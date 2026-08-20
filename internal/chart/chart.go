@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -140,7 +140,7 @@ func (c *Chart) TemplateFiles() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, nil
 }
 

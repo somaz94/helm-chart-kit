@@ -16,7 +16,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -258,7 +258,7 @@ func collectProps(props map[string]json.RawMessage, path []string, out map[strin
 	for name := range props {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 
 	for _, name := range names {
 		var node struct {

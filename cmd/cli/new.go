@@ -92,8 +92,8 @@ top. Every resource contributes its own documented section to values.yaml.`,
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be written and exit")
 	cmd.Flags().BoolVar(&opts.schema, "schema", false, "also write values.schema.json")
 	cmd.Flags().BoolVar(&opts.schemaStrict, "schema-strict", false, "write values.schema.json and reject undeclared top-level keys")
-	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "platform values overlays to write: "+strings.Join(catalog.PlatformNames(), ", "))
-	cmd.Flags().StringSliceVar(&opts.envs, "env", nil, "environment values overlays to write: "+strings.Join(catalog.EnvironmentNames(), ", "))
+	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "platform values overlays to write: "+strings.Join(catalog.OverlayNames(catalog.PlatformAxis), ", "))
+	cmd.Flags().StringSliceVar(&opts.envs, "env", nil, "environment values overlays to write: "+strings.Join(catalog.OverlayNames(catalog.EnvironmentAxis), ", "))
 
 	_ = cmd.RegisterFlagCompletionFunc("preset",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
@@ -101,11 +101,11 @@ top. Every resource contributes its own documented section to values.yaml.`,
 		})
 	_ = cmd.RegisterFlagCompletionFunc("env",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-			return catalog.EnvironmentNames(), cobra.ShellCompDirectiveNoFileComp
+			return catalog.OverlayNames(catalog.EnvironmentAxis), cobra.ShellCompDirectiveNoFileComp
 		})
 	_ = cmd.RegisterFlagCompletionFunc("platform",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-			return catalog.PlatformNames(), cobra.ShellCompDirectiveNoFileComp
+			return catalog.OverlayNames(catalog.PlatformAxis), cobra.ShellCompDirectiveNoFileComp
 		})
 	_ = cmd.RegisterFlagCompletionFunc("with",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

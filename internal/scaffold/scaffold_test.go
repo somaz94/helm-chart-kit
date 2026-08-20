@@ -688,15 +688,15 @@ func TestChartResourcesReadsTheTemplateDirectory(t *testing.T) {
 	}
 }
 
-func TestBuildPlatformValues(t *testing.T) {
+func TestBuildOverlayValuesForAPlatform(t *testing.T) {
 	c := newChart(t, "web")
 	resources, err := ChartResources(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aws, _ := catalog.LookupPlatform("aws")
+	aws, _ := catalog.LookupOverlay(catalog.PlatformAxis, "aws")
 
-	out, ok, err := BuildPlatformValues(DataFor(c), resources, aws)
+	out, ok, err := BuildOverlayValues(DataFor(c), resources, aws)
 	if err != nil || !ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
@@ -720,10 +720,10 @@ func TestBuildPlatformValues(t *testing.T) {
 
 // A chart whose resources do not differ on a platform gets no file at all,
 // rather than one consisting of a header.
-func TestBuildPlatformValuesEmptyWhenNothingDiffers(t *testing.T) {
-	aws, _ := catalog.LookupPlatform("aws")
+func TestBuildOverlayValuesEmptyWhenNothingDiffersOnAPlatform(t *testing.T) {
+	aws, _ := catalog.LookupOverlay(catalog.PlatformAxis, "aws")
 	cm, _ := catalog.LookupResource("configmap")
-	_, ok, err := BuildPlatformValues(DataFor(newChart(t, "web")), []catalog.Resource{cm}, aws)
+	_, ok, err := BuildOverlayValues(DataFor(newChart(t, "web")), []catalog.Resource{cm}, aws)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -734,14 +734,14 @@ func TestBuildPlatformValuesEmptyWhenNothingDiffers(t *testing.T) {
 
 // The overlay only carries keys the chart's own resources contribute; a
 // worker has no Ingress, so no ingress annotations.
-func TestBuildPlatformValuesFollowsTheChartsResources(t *testing.T) {
+func TestBuildOverlayValuesFollowsTheChartsResources(t *testing.T) {
 	c := newChart(t, "worker")
 	resources, err := ChartResources(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aws, _ := catalog.LookupPlatform("aws")
-	out, ok, err := BuildPlatformValues(DataFor(c), resources, aws)
+	aws, _ := catalog.LookupOverlay(catalog.PlatformAxis, "aws")
+	out, ok, err := BuildOverlayValues(DataFor(c), resources, aws)
 	if err != nil || !ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
@@ -800,30 +800,30 @@ func TestPlanNewRejectsAnUnknownPlatform(t *testing.T) {
 	}
 }
 
-func TestChartPlatforms(t *testing.T) {
+func TestChartOverlaysOnThePlatformAxis(t *testing.T) {
 	c := newChart(t, "web")
-	if got := ChartPlatforms(c); len(got) != 0 {
+	if got := ChartOverlays(c, catalog.PlatformAxis); len(got) != 0 {
 		t.Errorf("a fresh chart reports %v", got)
 	}
-	aws, _ := catalog.LookupPlatform("aws")
+	aws, _ := catalog.LookupOverlay(catalog.PlatformAxis, "aws")
 	if err := os.WriteFile(filepath.Join(c.Dir, aws.ValuesFile()), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := ChartPlatforms(c)
+	got := ChartOverlays(c, catalog.PlatformAxis)
 	if len(got) != 1 || got[0].Name != "aws" {
 		t.Errorf("got %v, want just aws", got)
 	}
 }
 
-func TestBuildEnvironmentValues(t *testing.T) {
+func TestBuildOverlayValuesForAnEnvironment(t *testing.T) {
 	c := newChart(t, "web")
 	resources, err := ChartResources(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	prod, _ := catalog.LookupEnvironment("prod")
+	prod, _ := catalog.LookupOverlay(catalog.EnvironmentAxis, "prod")
 
-	out, ok, err := BuildEnvironmentValues(DataFor(c), resources, prod)
+	out, ok, err := BuildOverlayValues(DataFor(c), resources, prod)
 	if err != nil || !ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
@@ -850,10 +850,10 @@ func TestBuildEnvironmentValues(t *testing.T) {
 	}
 }
 
-func TestBuildEnvironmentValuesEmptyWhenNothingDiffers(t *testing.T) {
-	dev, _ := catalog.LookupEnvironment("dev")
+func TestBuildOverlayValuesEmptyWhenNothingDiffersAtAnEnvironment(t *testing.T) {
+	dev, _ := catalog.LookupOverlay(catalog.EnvironmentAxis, "dev")
 	sa, _ := catalog.LookupResource("serviceaccount")
-	_, ok, err := BuildEnvironmentValues(DataFor(newChart(t, "web")), []catalog.Resource{sa}, dev)
+	_, ok, err := BuildOverlayValues(DataFor(newChart(t, "web")), []catalog.Resource{sa}, dev)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -893,16 +893,16 @@ func TestPlanNewWritesEnvironmentOverlays(t *testing.T) {
 	}
 }
 
-func TestChartEnvironments(t *testing.T) {
+func TestChartOverlaysOnTheEnvironmentAxis(t *testing.T) {
 	c := newChart(t, "web")
-	if got := ChartEnvironments(c); len(got) != 0 {
+	if got := ChartOverlays(c, catalog.EnvironmentAxis); len(got) != 0 {
 		t.Errorf("a fresh chart reports %v", got)
 	}
-	prod, _ := catalog.LookupEnvironment("prod")
+	prod, _ := catalog.LookupOverlay(catalog.EnvironmentAxis, "prod")
 	if err := os.WriteFile(filepath.Join(c.Dir, prod.ValuesFile()), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := ChartEnvironments(c)
+	got := ChartOverlays(c, catalog.EnvironmentAxis)
 	if len(got) != 1 || got[0].Name != "prod" {
 		t.Errorf("got %v, want just prod", got)
 	}
@@ -937,4 +937,19 @@ func firstLines(s string, n int) string {
 		lines = lines[:n]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// The advisory for an empty overlay reads as a sentence on either axis: a
+// chart differs "on aws" but "at prod".
+func TestNoOverlayNoteFollowsTheAxis(t *testing.T) {
+	aws, _ := catalog.LookupOverlay(catalog.PlatformAxis, "aws")
+	if got, want := noOverlayNote(aws),
+		"nothing in this chart differs on aws, so no values-aws.yaml was written"; got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	prod, _ := catalog.LookupOverlay(catalog.EnvironmentAxis, "prod")
+	if got, want := noOverlayNote(prod),
+		"nothing in this chart differs at prod, so no values-prod.yaml was written"; got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
 }

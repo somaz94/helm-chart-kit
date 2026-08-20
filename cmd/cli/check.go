@@ -51,33 +51,19 @@ defaults — which is the point of requiring one.`,
 				return err
 			}
 
-			// A platform overlay that does not render is worse than no
-			// overlay: it looks like configuration until the day it is used.
-			var overlays []string
-			for _, name := range splitList(opts.platforms) {
-				pf, ok := catalog.LookupPlatform(name)
-				if !ok {
-					return fmt.Errorf("unknown platform %q (known: %s)", name, strings.Join(catalog.PlatformNames(), ", "))
-				}
-				path := filepath.Join(c.Dir, pf.ValuesFile())
-				if _, err := os.Stat(path); err != nil {
-					return fmt.Errorf("%s has no %s — run: hck platform add %s", c.Meta.Name, pf.ValuesFile(), pf.Name)
-				}
-				overlays = append(overlays, path)
+			// An overlay that does not render is worse than no overlay: it
+			// looks like configuration until the day it is used. Environments
+			// go last — overlays apply left to right, so the size one asks for
+			// wins over whatever a platform overlay set.
+			overlays, err := overlayPaths(c, catalog.PlatformAxis, splitList(opts.platforms))
+			if err != nil {
+				return err
 			}
-			// Environment last: overlays apply left to right, so the size it
-			// asks for wins over whatever a platform overlay set.
-			for _, name := range splitList(opts.envs) {
-				e, ok := catalog.LookupEnvironment(name)
-				if !ok {
-					return fmt.Errorf("unknown environment %q (known: %s)", name, strings.Join(catalog.EnvironmentNames(), ", "))
-				}
-				path := filepath.Join(c.Dir, e.ValuesFile())
-				if _, err := os.Stat(path); err != nil {
-					return fmt.Errorf("%s has no %s — run: hck env add %s", c.Meta.Name, e.ValuesFile(), e.Name)
-				}
-				overlays = append(overlays, path)
+			envs, err := overlayPaths(c, catalog.EnvironmentAxis, splitList(opts.envs))
+			if err != nil {
+				return err
 			}
+			overlays = append(overlays, envs...)
 
 			rep, err := check.Run(c, check.Options{
 				ValuesFiles:  opts.valuesFiles,
@@ -128,10 +114,29 @@ defaults — which is the point of requiring one.`,
 
 	cmd.Flags().StringVar(&opts.chartDir, "chart", ".", "chart directory; parent directories are searched for Chart.yaml")
 	cmd.Flags().StringSliceVarP(&opts.valuesFiles, "values", "f", nil, "values files passed to helm; repeatable")
-	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "also apply these platform overlays: "+strings.Join(catalog.PlatformNames(), ", "))
-	cmd.Flags().StringSliceVar(&opts.envs, "env", nil, "also apply these environment overlays: "+strings.Join(catalog.EnvironmentNames(), ", "))
+	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "also apply these platform overlays: "+strings.Join(catalog.OverlayNames(catalog.PlatformAxis), ", "))
+	cmd.Flags().StringSliceVar(&opts.envs, "env", nil, "also apply these environment overlays: "+strings.Join(catalog.OverlayNames(catalog.EnvironmentAxis), ", "))
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "fail on warnings as well as errors")
 	cmd.Flags().BoolVar(&opts.printOutput, "print", false, "print the rendered manifests")
 	cmd.Flags().BoolVar(&opts.noRender, "no-render", false, "skip helm; run only the rules that read the chart directory")
 	return cmd
+}
+
+// overlayPaths resolves overlay names on one axis to the files inside a chart,
+// refusing a name the catalog does not know and one the chart never had a file
+// written for.
+func overlayPaths(c *chart.Chart, axis catalog.Axis, names []string) ([]string, error) {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		o, ok := catalog.LookupOverlay(axis, name)
+		if !ok {
+			return nil, fmt.Errorf("unknown %s %q (known: %s)", axis, name, strings.Join(catalog.OverlayNames(axis), ", "))
+		}
+		path := filepath.Join(c.Dir, o.ValuesFile())
+		if _, err := os.Stat(path); err != nil {
+			return nil, fmt.Errorf("%s has no %s — run: hck %s add %s", c.Meta.Name, o.ValuesFile(), axis.Command(), o.Name)
+		}
+		out = append(out, path)
+	}
+	return out, nil
 }
