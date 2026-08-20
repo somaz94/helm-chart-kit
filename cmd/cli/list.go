@@ -73,7 +73,9 @@ func newListCmd() *cobra.Command {
 				_ = w.Flush()
 				fprintf(out, "\n  Turn one off or change its severity in the chart's %s:\n", p.dim(check.ConfigFile))
 				fprintf(out, "  %s\n", p.dim("rules:"))
+				fprintf(out, "  %s\n", p.dim(`  "`+check.WildcardRule+`": off    # every rule that can be`))
 				fprintf(out, "  %s\n", p.dim("  HCK025: off"))
+				fprintf(out, "\n  Or for one run, without editing the chart: %s\n", p.dim("hck check --off HCK025"))
 			}
 			return nil
 		},

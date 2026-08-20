@@ -1065,3 +1065,88 @@ func targetKindsIn(values string) []string {
 }
 
 var targetKindRE = regexp.MustCompile(`(?m)^\s+targetKind: (\w+)`)
+
+// --force is the escape hatch on the single-workload rule, and it is the same
+// escape hatch "hck add" has always had. The chart it produces is still one
+// "hck check" reports HCK030 over — waiving the refusal is not the same as
+// the combination being fine.
+func TestPlanNewForceAllowsTwoWorkloads(t *testing.T) {
+	plan, err := PlanNew(NewOptions{
+		Parent: t.TempDir(), Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "web",
+		Extra: []string{"daemonset"}, Force: true,
+	})
+	if err != nil {
+		t.Fatalf("--force should allow it: %v", err)
+	}
+	for _, want := range []string{"templates/deployment.yaml", "templates/daemonset.yaml"} {
+		if !planHas(plan, want, Create) {
+			t.Errorf("plan does not create %s", want)
+		}
+	}
+}
+
+// Forcing into a directory that is not empty fills in what is missing and
+// leaves everything else alone. Overwriting would take values.yaml with it,
+// and values.yaml is never rewritten.
+func TestPlanNewForceKeepsWhatIsAlreadyThere(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "demo")
+	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mine := []byte("# mine\nimage:\n  tag: pinned\n")
+	for path, content := range map[string][]byte{
+		"values.yaml":               mine,
+		"templates/deployment.yaml": []byte("# hand-written\n"),
+		"README.md":                 []byte("# demo\n"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, path), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	plan, err := PlanNew(NewOptions{
+		Parent: parent, Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "web", Force: true,
+	})
+	if err != nil {
+		t.Fatalf("--force should allow a directory that is not empty: %v", err)
+	}
+	for _, path := range []string{"values.yaml", "templates/deployment.yaml"} {
+		if !planHas(plan, path, Skip) {
+			t.Errorf("%s is already there and the plan does not skip it", path)
+		}
+	}
+	if !planHas(plan, "templates/service.yaml", Create) {
+		t.Error("the plan does not fill in the template that was missing")
+	}
+	// The keys were named by a merge whose output is no longer being written.
+	if len(plan.ValuesAdded) > 0 {
+		t.Errorf("the plan claims to write values keys into a file it skips: %v", plan.ValuesAdded)
+	}
+
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(mine) {
+		t.Errorf("values.yaml was rewritten:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "templates", "service.yaml")); err != nil {
+		t.Errorf("the missing template was not written: %v", err)
+	}
+}
+
+// planHas reports whether the plan does exactly this to exactly this file.
+func planHas(p *Plan, path string, action Action) bool {
+	for _, f := range p.Files {
+		if f.Path == path {
+			return f.Action == action
+		}
+	}
+	return false
+}

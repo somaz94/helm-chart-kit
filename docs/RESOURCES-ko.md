@@ -13,8 +13,16 @@
 | `cronjob` | serviceaccount, cronjob, configmap |
 | `stateful` | serviceaccount, statefulset, service, pdb, networkpolicy, configmap |
 | `daemon` | serviceaccount, daemonset, configmap, networkpolicy |
+| `minimal` | serviceaccount, deployment, service |
+| `gateway` | serviceaccount, deployment, service, httproute, hpa, pdb, networkpolicy, configmap, tests |
+| `mesh` | serviceaccount, deployment, service, virtualservice, destinationrule, authorizationpolicy, hpa, pdb, configmap, tests |
+| `queue` | serviceaccount, deployment, scaledobject, pdb, networkpolicy, configmap |
+| `monitored` | serviceaccount, deployment, service, ingress, hpa, pdb, networkpolicy, configmap, servicemonitor, prometheusrule, grafanadashboard, tests |
+| `secure` | serviceaccount, rbac, deployment, service, ingress, certificate, externalsecret, hpa, pdb, networkpolicy, configmap, tests |
 
-모든 preset은 workload를 정확히 하나만 가집니다. 이건 관례가 아니라 테스트로 강제됩니다. 한 차트에 workload가 둘이면 같은 values 키(`image`, `resources`, `updateStrategy`)를 호환되지 않는 형태로 놓고 다투기 때문입니다.
+모든 preset은 workload를 정확히 하나만 가집니다. 이건 관례가 아니라 테스트로 강제됩니다. 한 차트에 workload가 둘이면 같은 values 키(`image`, `resources`, `updateStrategy`)를 호환되지 않는 형태로 놓고 다투기 때문입니다. 정말 둘 다 필요한 차트를 위해 `hck new --force`가 이 거부를 풀어 주지만, `hck check`는 여전히 `HCK030`으로 보고합니다.
+
+이 중 셋은 무엇을 뺐는지가 더 중요합니다. `mesh`에는 NetworkPolicy가 없습니다. 메시 안에서 "누가 이 워크로드를 호출할 수 있는가"는 AuthorizationPolicy가 L7에서 신원과 함께 답하는 질문이고, L3에서 같은 이름으로 한 번 더 답하면 서로 다른 두 답이 남습니다. `queue`에는 HPA가 없습니다. 레플리카 수는 KEDA `ScaledObject`가 가져가며, 둘이 함께 그 수를 움직이는 상황이 바로 `HCK031`이 보고하는 것입니다. `secure`는 Certificate만 두고 Issuer는 두지 않습니다. Certificate의 기본값은 공용 Issuer가 사는 ClusterIssuer이고, 네임스페이스 Issuer를 옆에 두고 둘을 연결하지 않는 것이 `HCK034`가 보고하는 상황입니다 — 차트 전용 Issuer가 필요하면 `hck add issuer`가 있습니다.
 
 <br/>
 

@@ -339,6 +339,53 @@ var presets = []Preset{
 		Summary:   "Node agent: DaemonSet on every node, no Service",
 		Resources: []string{"serviceaccount", "daemonset", "configmap", "networkpolicy"},
 	},
+	{
+		// The smallest chart that is worth generating: something running, and
+		// something in front of it. Everything else is "hck add", which is
+		// the point — a first chart nobody has to read before trusting.
+		Name:      "minimal",
+		Summary:   "Smallest chart that runs and is reachable: Deployment and Service",
+		Resources: []string{"serviceaccount", "deployment", "service"},
+	},
+	{
+		// "web" with the Gateway API in place of the Ingress. The two are the
+		// same shape and the same decision, which is why this is a preset
+		// rather than a flag: a chart carries one of them, not both.
+		Name:      "gateway",
+		Summary:   "HTTP service on Gateway API: Deployment, Service, HTTPRoute, HPA, PDB",
+		Resources: []string{"serviceaccount", "deployment", "service", "httproute", "hpa", "pdb", "networkpolicy", "configmap", "tests"},
+	},
+	{
+		// No NetworkPolicy: in a mesh, who may call this workload is the
+		// AuthorizationPolicy's answer, at L7 and with an identity. A second
+		// answer at L3 is a different question with the same name, and the
+		// two disagreeing is a debugging session nobody enjoys.
+		Name:      "mesh",
+		Summary:   "Istio service: Deployment, Service, VirtualService, DestinationRule, AuthorizationPolicy",
+		Resources: []string{"serviceaccount", "deployment", "service", "virtualservice", "destinationrule", "authorizationpolicy", "hpa", "pdb", "configmap", "tests"},
+	},
+	{
+		// No HPA: a KEDA ScaledObject owns the replica count, and the two
+		// driving it together is what HCK031 reports. A queue consumer scales
+		// on queue depth, which is the reason to reach for KEDA at all.
+		Name:      "queue",
+		Summary:   "KEDA consumer: Deployment scaled on queue depth, no Service",
+		Resources: []string{"serviceaccount", "deployment", "scaledobject", "pdb", "networkpolicy", "configmap"},
+	},
+	{
+		Name:      "monitored",
+		Summary:   "web, plus a ServiceMonitor, alert rules and a Grafana dashboard",
+		Resources: []string{"serviceaccount", "deployment", "service", "ingress", "hpa", "pdb", "networkpolicy", "configmap", "servicemonitor", "prometheusrule", "grafanadashboard", "tests"},
+	},
+	{
+		// A Certificate and no Issuer: the Certificate defaults to a
+		// ClusterIssuer, which is where a shared one lives. Shipping the
+		// namespaced Issuer alongside it is what HCK034 reports, and "hck add
+		// issuer" is there for the chart that genuinely wants its own.
+		Name:      "secure",
+		Summary:   "web, plus RBAC, a cert-manager Certificate and an ExternalSecret",
+		Resources: []string{"serviceaccount", "rbac", "deployment", "service", "ingress", "certificate", "externalsecret", "hpa", "pdb", "networkpolicy", "configmap", "tests"},
+	},
 }
 
 // entry is anything the catalog indexes by name. Resources, presets and

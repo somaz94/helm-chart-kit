@@ -53,7 +53,7 @@ updated payments-api
 | **추가 시 `values.yaml`** | — | 덧붙임, 기존 바이트 그대로 |
 | **값 설명** | 거의 없음 | 모든 키에 그 키가 있는 이유가 적혀 있음 |
 | **Gateway API, Istio, ServiceMonitor, ExternalSecret** | — | 있음 |
-| **preset** | 한 가지 형태 | `web`, `worker`, `cronjob`, `stateful`, `daemon` |
+| **preset** | 한 가지 형태 | 11개: `web`, `gateway`, `mesh`, `worker`, `queue`, `stateful`, `daemon`, `cronjob`, `monitored`, `secure`, `minimal` |
 | **플랫폼별 값** | 없음 | `aws`, `gcp`, `azure`, `onprem` 오버레이 |
 | **환경별 값** | 없음 | `dev`, `staging`, `prod` 오버레이 |
 | **커스텀 시작점** | `--starter`, 차트 통째로만 | 리소스 단위, 조합 가능 |
@@ -113,6 +113,12 @@ hck init payments-api
 hck new billing-worker --preset worker     # Service 없음, ingress 경로 없음
 hck new sessions --preset stateful         # 레플리카별 볼륨을 가진 StatefulSet
 hck new log-shipper --preset daemon        # 모든 노드에 DaemonSet
+hck new edge --preset gateway              # Ingress 대신 HTTPRoute
+hck new checkout --preset mesh             # Istio 라우팅, 접근 정책, mTLS
+hck new mailer --preset queue              # 큐 길이로 KEDA 가 스케일
+hck new payments --preset monitored        # web 에 Prometheus 한 벌 추가
+hck new tokens --preset secure             # web 에 RBAC, TLS, ESO 추가
+hck new tiny --preset minimal              # Deployment 와 Service 뿐
 
 # 여러 개를 한 번에, 또는 먼저 무슨 일이 일어날지 보기
 hck add pdb networkpolicy
@@ -129,6 +135,11 @@ hck sync --write deployment                # hck 쪽 버전으로 가져오기
 
 # 실제 values 로 검사하거나, 경고도 실패로 취급
 hck check -f values/prod.yaml --strict
+hck check --off HCK025                     # 이 차트는 CPU limit 을 쓰겠다는 뜻
+
+# hck 가 거부하는 것에 대한 탈출구: 두 번째 워크로드, 비어 있지 않은 디렉터리.
+# 이미 있는 파일은 건드리지 않습니다
+hck new sidecar-pair --preset web --with daemonset --force
 
 # 플랫폼 오버레이: EKS / GKE / AKS / 자체 운영에서 달라지는 것만
 hck new payments-api --platform aws
@@ -164,6 +175,12 @@ Chart name? [payments-api]
   presets:
     cronjob   Scheduled task: CronJob, ServiceAccount, ConfigMap
     daemon    Node agent: DaemonSet on every node, no Service
+    gateway   HTTP service on Gateway API: Deployment, Service, HTTPRoute, HPA, PDB
+    mesh      Istio service: Deployment, Service, VirtualService, DestinationRule, AuthorizationPolicy
+    minimal   Smallest chart that runs and is reachable: Deployment and Service
+    monitored web, plus a ServiceMonitor, alert rules and a Grafana dashboard
+    queue     KEDA consumer: Deployment scaled on queue depth, no Service
+    secure    web, plus RBAC, a cert-manager Certificate and an ExternalSecret
     stateful  Stateful service: StatefulSet, headless Service, PDB, NetworkPolicy
     web       HTTP service: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
     worker    Queue consumer: Deployment with no Service and no ingress path

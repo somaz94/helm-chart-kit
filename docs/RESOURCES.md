@@ -13,8 +13,16 @@
 | `cronjob` | serviceaccount, cronjob, configmap |
 | `stateful` | serviceaccount, statefulset, service, pdb, networkpolicy, configmap |
 | `daemon` | serviceaccount, daemonset, configmap, networkpolicy |
+| `minimal` | serviceaccount, deployment, service |
+| `gateway` | serviceaccount, deployment, service, httproute, hpa, pdb, networkpolicy, configmap, tests |
+| `mesh` | serviceaccount, deployment, service, virtualservice, destinationrule, authorizationpolicy, hpa, pdb, configmap, tests |
+| `queue` | serviceaccount, deployment, scaledobject, pdb, networkpolicy, configmap |
+| `monitored` | serviceaccount, deployment, service, ingress, hpa, pdb, networkpolicy, configmap, servicemonitor, prometheusrule, grafanadashboard, tests |
+| `secure` | serviceaccount, rbac, deployment, service, ingress, certificate, externalsecret, hpa, pdb, networkpolicy, configmap, tests |
 
-Every preset carries exactly one workload. That is enforced by a test, not a convention: two workloads in one chart contend for the same values keys — `image`, `resources`, `updateStrategy` — with incompatible shapes.
+Every preset carries exactly one workload. That is enforced by a test, not a convention: two workloads in one chart contend for the same values keys — `image`, `resources`, `updateStrategy` — with incompatible shapes. `hck new --force` waives the refusal for the chart that genuinely wants both; `hck check` still reports it as `HCK030`.
+
+Three of them are shaped by what they leave out, which is the part worth reading twice. `mesh` has no NetworkPolicy: in a mesh, who may call this workload is the AuthorizationPolicy's answer, at L7 and with an identity, and a second answer at L3 is a different question wearing the same name. `queue` has no HPA: a KEDA `ScaledObject` owns the replica count, and the two driving it together is exactly what `HCK031` reports. `secure` ships a Certificate and no Issuer: the Certificate defaults to a ClusterIssuer, which is where a shared one lives, and shipping a namespaced Issuer beside it without wiring the two together is what `HCK034` reports — `hck add issuer` is there for the chart that wants its own.
 
 <br/>
 

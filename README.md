@@ -53,7 +53,7 @@ updated payments-api
 | **`values.yaml` on add** | — | Appended, existing bytes untouched |
 | **Documented values** | Sparse | Every key carries the reason it exists |
 | **Gateway API, Istio, ServiceMonitor, ExternalSecret** | — | Yes |
-| **Presets** | One shape | `web`, `worker`, `cronjob`, `stateful`, `daemon` |
+| **Presets** | One shape | 11: `web`, `gateway`, `mesh`, `worker`, `queue`, `stateful`, `daemon`, `cronjob`, `monitored`, `secure`, `minimal` |
 | **Platform values** | None | `aws`, `gcp`, `azure`, `onprem` overlays |
 | **Environment values** | None | `dev`, `staging`, `prod` overlays |
 | **Custom starters** | `--starter`, whole-chart only | Per-resource, composable |
@@ -114,6 +114,12 @@ above are all you need, you are done.
 hck new billing-worker --preset worker     # no Service, no ingress path
 hck new sessions --preset stateful         # StatefulSet with per-replica volumes
 hck new log-shipper --preset daemon        # DaemonSet on every node
+hck new edge --preset gateway              # HTTPRoute instead of Ingress
+hck new checkout --preset mesh             # Istio routing, policy and mTLS
+hck new mailer --preset queue              # scaled by KEDA on queue depth
+hck new payments --preset monitored        # web, plus the Prometheus stack
+hck new tokens --preset secure             # web, plus RBAC, TLS and ESO
+hck new tiny --preset minimal              # a Deployment and a Service
 
 # Add several at once, or see what would happen first
 hck add pdb networkpolicy
@@ -130,6 +136,11 @@ hck sync --write deployment                # take hck's version
 
 # Check against real values, or fail on warnings too
 hck check -f values/prod.yaml --strict
+hck check --off HCK025                     # this chart wants its CPU limits
+
+# The escape hatch on what hck refuses: a second workload, or a directory
+# that is not empty. Files already there are left alone
+hck new sidecar-pair --preset web --with daemonset --force
 
 # Platform overlays: only what differs on EKS / GKE / AKS / self-managed
 hck new payments-api --platform aws
@@ -165,6 +176,12 @@ Chart name? [payments-api]
   presets:
     cronjob   Scheduled task: CronJob, ServiceAccount, ConfigMap
     daemon    Node agent: DaemonSet on every node, no Service
+    gateway   HTTP service on Gateway API: Deployment, Service, HTTPRoute, HPA, PDB
+    mesh      Istio service: Deployment, Service, VirtualService, DestinationRule, AuthorizationPolicy
+    minimal   Smallest chart that runs and is reachable: Deployment and Service
+    monitored web, plus a ServiceMonitor, alert rules and a Grafana dashboard
+    queue     KEDA consumer: Deployment scaled on queue depth, no Service
+    secure    web, plus RBAC, a cert-manager Certificate and an ExternalSecret
     stateful  Stateful service: StatefulSet, headless Service, PDB, NetworkPolicy
     web       HTTP service: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
     worker    Queue consumer: Deployment with no Service and no ingress path

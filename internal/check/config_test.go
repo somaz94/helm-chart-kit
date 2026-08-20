@@ -3,6 +3,7 @@ package check
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -198,4 +199,82 @@ func TestMustRulePanicsOnAnUnknownID(t *testing.T) {
 		}
 	}()
 	mustRule("HCK999")
+}
+
+// The wildcard is what a chart says when it wants the house rules mostly out
+// of the way, and a named ID beats it in both directions — off under a warn
+// wildcard, and on under an off one.
+func TestWildcardRuleAppliesToEveryConfigurableRule(t *testing.T) {
+	cfg := &Config{Rules: map[string]string{
+		WildcardRule: "off",
+		"HCK021":     "error",
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a wildcard is a legal key: %v", err)
+	}
+
+	sev, on := cfg.severity(mustRule("HCK021"))
+	if !on || sev != Error {
+		t.Errorf("HCK021 = %q/%v, want error/true — a named ID beats the wildcard", sev, on)
+	}
+	if _, on := cfg.severity(mustRule("HCK023")); on {
+		t.Error("HCK023 is not named and the wildcard is off, so it should not run")
+	}
+	// A locked rule is out of the wildcard's reach: a chart that does not
+	// render reporting clean is not something a "*" should be able to do.
+	if _, on := cfg.severity(mustRule("HCK001")); !on {
+		t.Error("the wildcard reached HCK001")
+	}
+
+	disabled := cfg.Disabled()
+	if slices.Contains(disabled, "HCK021") {
+		t.Errorf("HCK021 is on, but the report lists it as skipped: %v", disabled)
+	}
+	if slices.Contains(disabled, "HCK001") {
+		t.Errorf("HCK001 cannot be turned off, but the report lists it as skipped: %v", disabled)
+	}
+	if !slices.Contains(disabled, "HCK023") {
+		t.Errorf("HCK023 was turned off by the wildcard and the report does not say so: %v", disabled)
+	}
+	// The whole point of the line is that a clean report still says what it
+	// did not look for, so every rule the wildcard reached has to be in it.
+	if want := len(Rules()) - 2; len(disabled) != want {
+		t.Errorf("%d rules reported as skipped, want %d", len(disabled), want)
+	}
+}
+
+// --off is the same thing said for one run. It layers over the chart's file
+// rather than replacing it, and it refuses the same things the file does.
+func TestTurnOff(t *testing.T) {
+	base := &Config{Rules: map[string]string{"HCK023": "error"}}
+
+	cfg, err := base.TurnOff([]string{"HCK025", "hck011"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"HCK025", "HCK011"} {
+		if _, on := cfg.severity(mustRule(id)); on {
+			t.Errorf("%s was turned off and still runs", id)
+		}
+	}
+	if sev, _ := cfg.severity(mustRule("HCK023")); sev != Error {
+		t.Errorf("HCK023 = %q, want the chart's own error — --off layers, it does not replace", sev)
+	}
+	if _, ok := base.Rules["HCK025"]; ok {
+		t.Error("TurnOff edited the chart's own config in place")
+	}
+
+	if _, err := base.TurnOff([]string{"HCK999"}); err == nil {
+		t.Error("a misspelled --off has to be an error, not a rule that quietly kept reporting")
+	}
+	if _, err := base.TurnOff([]string{"HCK001"}); err == nil {
+		t.Error("--off HCK001 should be refused the same way the file refuses it")
+	}
+
+	// Nothing to turn off leaves the caller's config exactly as it was, nil
+	// included: a chart that said nothing still means the defaults.
+	var absent *Config
+	if got, err := absent.TurnOff(nil); err != nil || got != nil {
+		t.Errorf("got %v, %v; want the nil config back untouched", got, err)
+	}
 }

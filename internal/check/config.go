@@ -16,6 +16,23 @@ import (
 // ConfigFile is the per-chart rule configuration, read from the chart root.
 const ConfigFile = ".hck.yaml"
 
+// WildcardRule is the rules key that stands for every rule a chart is allowed
+// to configure, so that a chart which wants the house rules mostly out of the
+// way says so once:
+//
+//	rules:
+//	  "*": off         # not this chart's idea of a good time
+//	  HCK021: error    # except: an untagged image is still a defect
+//
+// An explicit ID beats it, in both directions, which is what makes it an
+// escape hatch rather than a switch: turning everything off and naming the two
+// rules that stay on is a position, and it is legible in the file.
+//
+// It never reaches a locked rule. HCK001 is a chart that does not render, and
+// a wildcard is not somewhere anybody would look for the reason a broken chart
+// reported clean.
+const WildcardRule = "*"
+
 // Config is what a chart says about the house rules:
 //
 //	rules:
@@ -27,7 +44,7 @@ const ConfigFile = ".hck.yaml"
 // with a stable ID, and a chart-local one would report under an ID that means
 // something else in the next chart.
 type Config struct {
-	// Rules maps a rule ID to "off", "warn" or "error".
+	// Rules maps a rule ID — or WildcardRule — to "off", "warn" or "error".
 	Rules map[string]string `yaml:"rules"`
 }
 
@@ -62,12 +79,14 @@ func (c *Config) Validate() error {
 		return nil
 	}
 	for _, id := range slices.Sorted(maps.Keys(c.Rules)) {
-		r, ok := LookupRule(id)
-		if !ok {
-			return fmt.Errorf("unknown rule %q (see: hck list rules)", id)
-		}
-		if r.Locked {
-			return fmt.Errorf("%s cannot be configured — a chart that does not render has nothing else worth reporting", id)
+		if id != WildcardRule {
+			r, ok := LookupRule(id)
+			if !ok {
+				return fmt.Errorf("unknown rule %q (see: hck list rules)", id)
+			}
+			if r.Locked {
+				return fmt.Errorf("%s cannot be configured — a chart that does not render has nothing else worth reporting", id)
+			}
 		}
 		switch setting := c.Rules[id]; setting {
 		case "off", string(Warn), string(Error):
@@ -78,13 +97,39 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// TurnOff returns a copy of c with these rule IDs turned off — the same thing
+// the chart's .hck.yaml says, said for one run instead of written down.
+//
+// It is a copy because the caller's Config came off disk and belongs to the
+// chart: a --off that edited it in place would be indistinguishable, one frame
+// later, from the chart having asked for it.
+func (c *Config) TurnOff(ids []string) (*Config, error) {
+	if len(ids) == 0 {
+		return c, nil
+	}
+	out := &Config{Rules: map[string]string{}}
+	if c != nil {
+		maps.Copy(out.Rules, c.Rules)
+	}
+	for _, id := range ids {
+		out.Rules[strings.ToUpper(strings.TrimSpace(id))] = "off"
+	}
+	return out, out.Validate()
+}
+
 // severity resolves what a rule reports as for this chart, and whether it runs
 // at all. A nil Config is a chart that said nothing, which is the default.
 func (c *Config) severity(r Rule) (Severity, bool) {
 	if c == nil {
 		return r.Severity, true
 	}
-	switch c.Rules[r.ID] {
+	setting, named := c.Rules[r.ID]
+	// The wildcard fills in for a rule nobody named, and never for a locked
+	// one — Validate has already refused naming that one directly.
+	if !named && !r.Locked {
+		setting = c.Rules[WildcardRule]
+	}
+	switch setting {
 	case "off":
 		return "", false
 	case string(Error):
@@ -103,10 +148,13 @@ func (c *Config) Disabled() []string {
 	if c == nil {
 		return nil
 	}
+	// Resolved rule by rule rather than read off the map: with a wildcard in
+	// play the map says "*" and the reader needs the IDs, and an explicit
+	// severity next to a wildcard "off" means that one is still on.
 	var out []string
-	for id, setting := range c.Rules {
-		if setting == "off" {
-			out = append(out, id)
+	for _, r := range rules {
+		if _, on := c.severity(r); !on {
+			out = append(out, r.ID)
 		}
 	}
 	slices.Sort(out)

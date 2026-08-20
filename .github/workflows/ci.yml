@@ -103,12 +103,18 @@ jobs:
 
       # Every preset must produce a chart that passes hck's own check with no
       # findings, and must keep passing after a resource is added to it.
+      #
+      # The list comes from "hck list presets" rather than being written out
+      # here: a preset added to the catalog and not to this line would be the
+      # one preset nothing ever renders, and the step would stay green. Only
+      # the name column starts at that indent, so awk picks it out and skips
+      # the resource line under each one.
       - name: Scaffold and check every preset
         run: |
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
-          for preset in web worker cronjob stateful daemon; do
+          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
             echo "::group::$preset"
             hck new "$preset" --dir "$workdir" --preset "$preset"
             hck check --chart "$workdir/$preset" --strict
@@ -145,7 +151,7 @@ jobs:
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
 
-          for preset in web worker cronjob stateful daemon; do
+          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
             echo "::group::$preset"
             hck new "$preset" --dir "$workdir" --preset "$preset" --schema
             hck check --chart "$workdir/$preset" --strict
@@ -206,7 +212,7 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
-          for preset in web worker cronjob stateful daemon; do
+          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
             for platform in aws gcp azure onprem; do
               name="$preset-$platform"
               hck new "$name" --dir "$workdir" --preset "$preset" --platform "$platform" --schema >/dev/null
@@ -248,7 +254,7 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
-          for preset in web worker cronjob stateful daemon; do
+          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
             for env in dev staging prod; do
               name="$preset-$env"
               hck new "$name" --dir "$workdir" --preset "$preset" --env "$env" --schema >/dev/null

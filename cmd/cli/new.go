@@ -18,6 +18,7 @@ func newNewCmd() *cobra.Command {
 		appVersion   string
 		with         []string
 		dryRun       bool
+		force        bool
 		schema       bool
 		schemaStrict bool
 		platforms    []string
@@ -30,7 +31,12 @@ func newNewCmd() *cobra.Command {
 		Long: `Create a chart directory seeded with a preset's resources.
 
 The preset decides which templates the chart starts with; --with adds more on
-top. Every resource contributes its own documented section to values.yaml.`,
+top. Every resource contributes its own documented section to values.yaml.
+
+Two things are refused by default and waived by --force: a second primary
+workload, and a target directory that is not empty. Forcing into a directory
+fills in what is missing and leaves every file already there alone, values.yaml
+included — use "hck add" to extend a chart that already exists.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  hck new payments-api
   hck new payments-api --preset worker
@@ -39,7 +45,8 @@ top. Every resource contributes its own documented section to values.yaml.`,
   hck new payments-api --schema
   hck new payments-api --platform aws
   hck new payments-api --platform aws,gcp --schema
-  hck new payments-api --platform aws --env dev,prod`,
+  hck new payments-api --platform aws --env dev,prod
+  hck new sidecar-pair --preset web --with daemonset --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			desc := opts.description
@@ -59,6 +66,7 @@ top. Every resource contributes its own documented section to values.yaml.`,
 				SchemaStrict: opts.schemaStrict,
 				Platforms:    splitList(opts.platforms),
 				Environments: splitList(opts.envs),
+				Force:        opts.force,
 			})
 			if err != nil {
 				return err
@@ -90,6 +98,7 @@ top. Every resource contributes its own documented section to values.yaml.`,
 	cmd.Flags().StringVar(&opts.appVersion, "app-version", "1.0.0", "version of the application the chart deploys")
 	cmd.Flags().StringSliceVar(&opts.with, "with", nil, "extra resources on top of the preset")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be written and exit")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "allow a second workload, and write into a directory that is not empty (files already there are left alone)")
 	cmd.Flags().BoolVar(&opts.schema, "schema", false, "also write values.schema.json")
 	cmd.Flags().BoolVar(&opts.schemaStrict, "schema-strict", false, "write values.schema.json and reject undeclared top-level keys")
 	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "platform values overlays to write: "+strings.Join(catalog.OverlayNames(catalog.PlatformAxis), ", "))

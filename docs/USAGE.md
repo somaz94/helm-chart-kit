@@ -48,6 +48,7 @@ hck new <chart-name> [flags]
 | `--platform` | — | Platform values overlays to write, comma-separated: `aws`, `gcp`, `azure`, `onprem` |
 | `--env` | — | Environment values overlays to write, comma-separated: `dev`, `staging`, `prod` |
 | `--dry-run` | `false` | Print what would be written and exit |
+| `--force` | `false` | Allow a second workload, and write into a directory that is not empty |
 
 ```bash
 hck new payments-api
@@ -55,9 +56,12 @@ hck new billing-worker --preset worker
 hck new sessions --preset stateful --with servicemonitor
 hck new gateway --preset web --with httproute,prometheusrule --dry-run
 hck new payments-api --schema
+hck new sidecar-pair --preset web --with daemonset --force
 ```
 
 The chart name must be a lowercase DNS label — Helm's own constraint — and the target directory must be empty or absent.
+
+`--force` waives both of the refusals above, and neither becomes a good idea by being waived. A second workload still contends for `image`, `resources` and `updateStrategy`, and `hck check` reports it as `HCK030` for as long as the chart carries both. Forcing into a directory that is not empty **fills in what is missing and writes over nothing** — every file already there is skipped, `values.yaml` first among them, and the plan names each one. That makes `hck new --force` a way to recover a chart that lost a template, and not a way to extend one: use `hck add`, which appends to `values.yaml` instead of leaving it alone.
 
 <br/>
 
@@ -208,6 +212,7 @@ hck check [flags]
 | `--platform` | — | Also apply these platform overlays, comma-separated |
 | `--env` | — | Also apply these environment overlays, comma-separated. Applied after `--platform`, so it wins |
 | `--strict` | `false` | Fail on warnings as well as errors |
+| `--off` | — | Rules to turn off for this run, comma-separated; `"*"` turns off every rule that can be |
 | `--print` | `false` | Print the rendered manifests |
 | `--no-render` | `false` | Skip helm; run only the rules that read the chart directory |
 | `--format` | `text` | `text` for a person, `json` for a CI step |
@@ -243,6 +248,25 @@ Every rule takes `off`, `warn` or `error`, and `hck list rules` prints the IDs. 
 - What the chart turned off is printed with the findings, so a clean report cannot be mistaken for a question nobody asked.
 
 The file is generated into `.helmignore`, so it never reaches a package.
+
+`"*"` stands for every rule that can be configured, and a named ID beats it — in both directions. A chart that wants the house rules mostly out of the way says so once, and the two it kept are legible in the file:
+
+```yaml
+rules:
+  "*": off
+  HCK021: error    # except: an untagged image is still a defect
+```
+
+The wildcard never reaches `HCK001`, for the same reason nothing else does.
+
+For one run, without editing the chart, `--off` says the same thing:
+
+```bash
+hck check --off HCK025,HCK011
+hck check --off '*'
+```
+
+`--off` layers over whatever the chart's own file said rather than replacing it, refuses the same two things that file refuses — an ID nobody has, and `HCK001` — and lands in the same `not checked:` line, so a run with half the rules off still says so.
 
 <br/>
 

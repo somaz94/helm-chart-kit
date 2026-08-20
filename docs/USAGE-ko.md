@@ -48,6 +48,7 @@ hck new <chart-name> [flags]
 | `--platform` | — | 생성할 플랫폼 오버레이. 쉼표 구분: `aws`, `gcp`, `azure`, `onprem` |
 | `--env` | — | 생성할 환경 오버레이. 쉼표 구분: `dev`, `staging`, `prod` |
 | `--dry-run` | `false` | 무엇을 쓸지만 출력하고 종료 |
+| `--force` | `false` | 두 번째 워크로드를 허용하고, 비어 있지 않은 디렉터리에도 씀 |
 
 ```bash
 hck new payments-api
@@ -55,9 +56,12 @@ hck new billing-worker --preset worker
 hck new sessions --preset stateful --with servicemonitor
 hck new gateway --preset web --with httproute,prometheusrule --dry-run
 hck new payments-api --schema
+hck new sidecar-pair --preset web --with daemonset --force
 ```
 
 차트 이름은 소문자 DNS 라벨이어야 하고(Helm 자체 제약입니다), 대상 디렉터리는 비어 있거나 없어야 합니다.
+
+`--force`는 위 두 거부를 모두 풀어 줍니다. 다만 풀렸다고 해서 좋은 생각이 되는 것은 아닙니다. 워크로드가 둘이면 여전히 `image`, `resources`, `updateStrategy`를 놓고 다투고, 차트가 둘을 다 가지고 있는 동안 `hck check`는 계속 `HCK030`으로 보고합니다. 비어 있지 않은 디렉터리에 `--force`로 쓰면 **빠진 것만 채우고 아무것도 덮어쓰지 않습니다.** 이미 있는 파일은 전부 건너뛰고 — `values.yaml`이 그중 첫 번째입니다 — 계획에 하나씩 이름이 찍힙니다. 그래서 `hck new --force`는 템플릿을 잃어버린 차트를 되살리는 방법이지, 차트를 확장하는 방법이 아닙니다. 확장은 `hck add`입니다. 그쪽은 `values.yaml`을 건너뛰는 대신 덧붙입니다.
 
 <br/>
 
@@ -208,6 +212,7 @@ hck check [flags]
 | `--platform` | — | 함께 적용할 플랫폼 오버레이. 쉼표 구분 |
 | `--env` | — | 함께 적용할 환경 오버레이. 쉼표 구분. `--platform` 뒤에 적용되므로 이쪽이 이깁니다 |
 | `--strict` | `false` | 경고도 실패로 취급 |
+| `--off` | — | 이번 실행에서만 끌 규칙, 쉼표로 구분. `"*"`는 끌 수 있는 규칙을 전부 끔 |
 | `--print` | `false` | 렌더된 매니페스트를 출력 |
 | `--no-render` | `false` | helm을 건너뛰고 차트 디렉터리만 읽는 규칙만 실행 |
 | `--format` | `text` | 사람이 읽으면 `text`, CI가 읽으면 `json` |
@@ -243,6 +248,25 @@ rules:
 - 차트가 꺼 둔 규칙은 지적 사항과 함께 출력됩니다. 그래야 깨끗한 결과를 아무도 묻지 않은 질문과 혼동하지 않습니다.
 
 이 파일은 `.helmignore`에 생성되므로 패키지에는 들어가지 않습니다.
+
+`"*"`는 설정할 수 있는 모든 규칙을 가리키고, 이름을 적은 ID가 양방향으로 그보다 우선합니다. 자체 규칙을 대체로 비켜 두고 싶은 차트는 한 번만 그렇게 적으면 되고, 남겨 둔 둘은 파일에 그대로 드러납니다.
+
+```yaml
+rules:
+  "*": off
+  HCK021: error    # except: an untagged image is still a defect
+```
+
+와일드카드는 `HCK001`에 닿지 않습니다. 다른 무엇도 닿지 않는 것과 같은 이유입니다.
+
+차트를 고치지 않고 이번 실행에서만 같은 말을 하려면 `--off`를 씁니다.
+
+```bash
+hck check --off HCK025,HCK011
+hck check --off '*'
+```
+
+`--off`는 차트가 자기 파일에 적어 둔 것을 대체하지 않고 그 위에 얹힙니다. 그 파일이 거부하는 두 가지 — 없는 ID와 `HCK001` — 를 똑같이 거부하고, 결과의 `not checked:` 줄에도 똑같이 실립니다. 규칙을 절반쯤 끄고 돌린 실행도 그 사실을 그대로 말한다는 뜻입니다.
 
 <br/>
 

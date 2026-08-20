@@ -25,6 +25,7 @@ func newCheckCmd() *cobra.Command {
 		printOutput bool
 		noRender    bool
 		format      string
+		off         []string
 	}
 
 	cmd := &cobra.Command{
@@ -43,6 +44,16 @@ A chart can turn a rule off or change its severity in its own .hck.yaml:
       HCK025: off      # this chart wants its CPU limits
       HCK023: error    # and will not ship without requests
 
+"*" stands for every rule that can be configured, and a named ID beats it, so
+a chart that wants the house rules mostly out of the way says so once:
+
+    rules:
+      "*": off
+      HCK021: error    # except: an untagged image is still a defect
+
+--off does the same thing for one run without editing the chart, and takes "*"
+too. Either way the report still names what it did not look for.
+
 Run "hck list rules" for the rule IDs.`,
 		Args: cobra.NoArgs,
 		Example: `  hck check
@@ -52,6 +63,8 @@ Run "hck list rules" for the rule IDs.`,
   hck check --platform aws,gcp --strict
   hck check --platform aws --env prod --strict
   hck check --format json
+  hck check --off HCK025,HCK011
+  hck check --off '*'
   hck check --print`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := chart.Find(opts.chartDir)
@@ -84,6 +97,14 @@ Run "hck list rules" for the rule IDs.`,
 			// A chart's own .hck.yaml, read before the run so a typo in a rule
 			// ID is an error rather than a rule that quietly kept reporting.
 			cfg, err := check.LoadConfig(c.Dir)
+			if err != nil {
+				return err
+			}
+			// --off layers over whatever the chart said, for this run only. A
+			// rule ID nobody has is an error here for the same reason it is in
+			// the file: a misspelled --off that quietly kept reporting reads
+			// exactly like the rule being right.
+			cfg, err = cfg.TurnOff(splitList(opts.off))
 			if err != nil {
 				return err
 			}
@@ -131,7 +152,7 @@ Run "hck list rules" for the rule IDs.`,
 			// report over a chart with half the rules off says less than it
 			// looks like it does.
 			if len(rep.Disabled) > 0 {
-				fprintf(out, "  %s\n", p.dim("off in "+check.ConfigFile+": "+strings.Join(rep.Disabled, ", ")))
+				fprintf(out, "  %s\n", p.dim("not checked: "+strings.Join(rep.Disabled, ", ")))
 			}
 
 			errs, warns := rep.Errors(), rep.Warns()
@@ -156,6 +177,18 @@ Run "hck list rules" for the rule IDs.`,
 	cmd.Flags().BoolVar(&opts.printOutput, "print", false, "print the rendered manifests")
 	cmd.Flags().BoolVar(&opts.noRender, "no-render", false, "skip helm; run only the rules that read the chart directory")
 	cmd.Flags().StringVar(&opts.format, "format", formatText, "output format: "+formatText+" or "+formatJSON)
+	cmd.Flags().StringSliceVar(&opts.off, "off", nil, `rules to turn off for this run; "*" turns off every rule that can be`)
+
+	_ = cmd.RegisterFlagCompletionFunc("off",
+		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+			ids := make([]string, 0, len(check.Rules()))
+			for _, r := range check.Rules() {
+				if !r.Locked {
+					ids = append(ids, r.ID)
+				}
+			}
+			return ids, cobra.ShellCompDirectiveNoFileComp
+		})
 	return cmd
 }
 

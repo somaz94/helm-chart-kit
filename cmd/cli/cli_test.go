@@ -12,6 +12,7 @@ import (
 
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
 	"github.com/somaz94/helm-chart-kit/internal/check"
+	"gopkg.in/yaml.v3"
 )
 
 // run drives a fresh command tree and captures its output. NO_COLOR keeps the
@@ -1357,14 +1358,14 @@ func TestCheckHonoursTheChartConfig(t *testing.T) {
 
 	writeFile(t, filepath.Join(chartDir, check.ConfigFile), "rules:\n  HCK013: off\n")
 	out = mustRun(t, "check", "--chart", chartDir, "--no-render")
-	// The ID still appears in the "off in" line, so look for a finding line.
+	// The ID still appears in the "not checked" line, so look for a finding line.
 	if strings.Contains(out, "warn  HCK013") {
 		t.Errorf("HCK013 is off but reported anyway:\n%s", out)
 	}
 	if !strings.Contains(out, "no findings") {
 		t.Errorf("turning off the only finding did not leave a clean report:\n%s", out)
 	}
-	if !strings.Contains(out, "off in "+check.ConfigFile) {
+	if !strings.Contains(out, "not checked: HCK013") {
 		t.Errorf("the report does not say what it skipped:\n%s", out)
 	}
 
@@ -1679,6 +1680,16 @@ func TestCompletionFollowsTheChart(t *testing.T) {
 		}
 	}
 
+	// --off offers the rules that can be turned off, and not the one that
+	// cannot: completing HCK001 would offer a flag value the command refuses.
+	out = mustRun(t, "__complete", "check", "--off", "")
+	if !completionOffers(out, "HCK025") {
+		t.Errorf("--off does not complete a rule ID:\n%s", out)
+	}
+	if completionOffers(out, "HCK001") {
+		t.Errorf("--off completes the locked rule:\n%s", out)
+	}
+
 	// Pointed somewhere that is not a chart, both offer nothing rather than
 	// an error a shell would print in the middle of a command line.
 	for _, cmd := range []string{"remove", "sync"} {
@@ -1702,4 +1713,138 @@ func completionOffers(out, candidate string) bool {
 		}
 	}
 	return false
+}
+
+// --force is the escape hatch on the two things "hck new" refuses: a second
+// workload, and a directory that is not empty.
+func TestNewForce(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--with", "daemonset", "--force")
+	if _, err := os.Stat(filepath.Join(parent, "demo", "templates", "daemonset.yaml")); err != nil {
+		t.Errorf("--force did not write the second workload: %v", err)
+	}
+
+	// Forcing over the chart that is now there fills in what is missing and
+	// says so, rather than writing anything back over it.
+	before := readFile(t, filepath.Join(parent, "demo", "values.yaml"))
+	out := mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--force")
+	if !strings.Contains(out, "already there") {
+		t.Errorf("the plan does not say it left the existing files alone:\n%s", out)
+	}
+	if got := readFile(t, filepath.Join(parent, "demo", "values.yaml")); got != before {
+		t.Error("values.yaml was rewritten by hck new --force")
+	}
+}
+
+// A rule turned off from the command line is turned off exactly as far as one
+// turned off in the chart's own file — and is still named in the report,
+// because a clean run has to be distinguishable from an unasked question.
+func TestCheckOffFlag(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir)
+	chartDir := filepath.Join(dir, "demo")
+	writeFile(t, filepath.Join(chartDir, "Chart.yaml"), "apiVersion: v2\nname: demo\n")
+
+	out := mustRun(t, "check", "--chart", chartDir, "--no-render")
+	if !strings.Contains(out, "warn  HCK013") {
+		t.Fatalf("HCK013 did not fire:\n%s", out)
+	}
+
+	out = mustRun(t, "check", "--chart", chartDir, "--no-render", "--off", "HCK013")
+	if strings.Contains(out, "warn  HCK013") {
+		t.Errorf("--off HCK013 did not turn it off:\n%s", out)
+	}
+	if !strings.Contains(out, "not checked: HCK013") {
+		t.Errorf("the report does not say what --off skipped:\n%s", out)
+	}
+
+	// The wildcard reaches every rule that can be configured, and no others.
+	out = mustRun(t, "check", "--chart", chartDir, "--no-render", "--off", "*")
+	if !strings.Contains(out, "no findings") {
+		t.Errorf(`--off "*" left findings:\n%s`, out)
+	}
+	if strings.Contains(out, "HCK001") {
+		t.Errorf(`--off "*" reached the locked rule:\n%s`, out)
+	}
+
+	// The same refusals the file gets: a rule nobody has, and the one rule
+	// that cannot be configured at all.
+	for _, id := range []string{"HCK999", "HCK001"} {
+		if _, err := run(t, "check", "--chart", chartDir, "--no-render", "--off", id); err == nil {
+			t.Errorf("--off %s was accepted", id)
+		}
+	}
+}
+
+// readFile is the read half of writeFile, for the tests that care that a file
+// did not move.
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// Every preset has to survive its own resources being switched on.
+//
+// TestCheckRendersTheGeneratedChart renders each preset on its defaults, and
+// every optional resource defaults to off — so a preset that carries a
+// VirtualService and a ScaledObject passes that test while proving nothing
+// about either. This turns on everything the preset actually brought.
+//
+// The fixture is filtered to the keys the chart's own values.yaml declares.
+// Setting a key a chart never declared is a different test: it is what a user
+// typo looks like, not what a preset does.
+func TestEveryPresetRendersWithItsResourcesOn(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	fixture := map[string]any{}
+	raw, err := os.ReadFile(filepath.Join("testdata", "enable-all.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+
+	parent := t.TempDir()
+	for _, preset := range catalog.PresetNames() {
+		t.Run(preset, func(t *testing.T) {
+			mustRun(t, "new", preset, "--dir", parent, "--preset", preset)
+			dir := filepath.Join(parent, preset)
+
+			declared := map[string]any{}
+			if err := yaml.Unmarshal([]byte(readFile(t, filepath.Join(dir, "values.yaml"))), &declared); err != nil {
+				t.Fatal(err)
+			}
+			on := map[string]any{}
+			for key, value := range fixture {
+				if _, ok := declared[key]; ok {
+					on[key] = value
+				}
+			}
+			// The fixture wires its Certificate to an Issuer named "all",
+			// which is a chart in another test. Here there is no Issuer at
+			// all, so the Certificate keeps its default ClusterIssuer.
+			delete(on, "certificate")
+			if _, ok := declared["certificate"]; ok {
+				on["certificate"] = map[string]any{"enabled": true}
+			}
+
+			values := filepath.Join(t.TempDir(), "on.yaml")
+			out, err := yaml.Marshal(on)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, values, string(out))
+
+			report := mustRun(t, "check", "--chart", dir, "-f", values)
+			if !strings.Contains(report, "no findings") {
+				t.Fatalf("preset %s does not pass its own check with its resources on:\n%s", preset, report)
+			}
+		})
+	}
 }

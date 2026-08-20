@@ -117,6 +117,15 @@ type NewOptions struct {
 	Platforms []string
 	// Environments names the environment overlays to write alongside them.
 	Environments []string
+	// Force waives the two refusals that stand between a request and a chart:
+	// a second primary workload, and a target directory that is not empty.
+	//
+	// It is the escape hatch, not a second mode. A second workload still
+	// renders a chart "hck check" reports HCK030 over, and a non-empty
+	// directory is filled in rather than overwritten — every file already
+	// there is skipped, values.yaml included, because values.yaml is never
+	// rewritten.
+	Force bool
 }
 
 // PlanNew builds the plan for creating a chart.
@@ -136,16 +145,22 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	// --with can name a workload on top of the one the preset already brings.
 	// "hck add" has always refused that; creating the same chart in one shot
 	// used to be allowed, which is the more likely way to reach for it.
-	if err := checkSingleWorkload(resources, nil); err != nil {
-		return nil, err
+	if !opts.Force {
+		if err := checkSingleWorkload(resources, nil); err != nil {
+			return nil, fmt.Errorf("%w, or pass --force if you really mean it", err)
+		}
 	}
 
 	dir, err := filepath.Abs(filepath.Join(opts.Parent, opts.Name))
 	if err != nil {
 		return nil, err
 	}
+	occupied := false
 	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
-		return nil, fmt.Errorf("%s already exists and is not empty", dir)
+		if !opts.Force {
+			return nil, fmt.Errorf("%s already exists and is not empty; pass --force to fill in what is missing there", dir)
+		}
+		occupied = true
 	}
 
 	data := render.Data{
@@ -229,7 +244,44 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 		}
 	}
 
+	if occupied {
+		if kept := keepWhatIsThere(plan); kept > 0 {
+			plan.Notes = append(plan.Notes, fmt.Sprintf(
+				"%d file(s) were already there and were left alone; to extend a chart that exists, use: hck add", kept))
+		}
+	}
+
 	return plan, nil
+}
+
+// keepWhatIsThere turns every write over a file that is already on disk into a
+// Skip.
+//
+// This is what --force means on a directory that is not empty: fill in what is
+// missing, and touch nothing that is there. Overwriting would take values.yaml
+// with it, and values.yaml is never rewritten — a chart somebody has spent an
+// afternoon on would come back as the defaults, with no way to tell what was
+// lost.
+func keepWhatIsThere(p *Plan) int {
+	kept := 0
+	for i, f := range p.Files {
+		if f.Action != Create {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(p.ChartDir, filepath.FromSlash(f.Path))); err != nil {
+			continue
+		}
+		p.Files[i] = File{Path: f.Path, Action: Skip, Reason: "already there"}
+		if f.Path == "values.yaml" {
+			// The merge already ran and named every key it was going to
+			// contribute. None of them are going anywhere now, and a plan
+			// that still listed them would be describing a file it is not
+			// writing.
+			p.ValuesAdded, p.ValuesSkipped = nil, nil
+		}
+		kept++
+	}
+	return kept
 }
 
 // PlanAdd builds the plan for adding resources to an existing chart.
