@@ -1,0 +1,13 @@
+# -- A fixed fleet has no zones to spread over, so spread over nodes instead.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: [[ .ChartName ]]
+
+# -- Private registry credentials. On a self-managed cluster there is no
+# ambient identity granting registry access the way a cloud node role does.
+imagePullSecrets:
+  - name: registry-credentials

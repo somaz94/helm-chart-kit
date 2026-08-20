@@ -1,0 +1,6 @@
+serviceAccount:
+  annotations:
+    # -- Google service account this Kubernetes SA impersonates, via Workload
+    # Identity. The binding is two-sided: the GSA also needs an IAM policy
+    # granting roles/iam.workloadIdentityUser to this namespace and name.
+    iam.gke.io/gcp-service-account: [[ .ChartName ]]@PROJECT_ID.iam.gserviceaccount.com

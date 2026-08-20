@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
 	"github.com/somaz94/helm-chart-kit/internal/render"
 	"github.com/somaz94/helm-chart-kit/internal/values"
+	"gopkg.in/yaml.v3"
 )
 
 func TestLookup(t *testing.T) {
@@ -219,4 +221,126 @@ func schemaKeys(src []byte) ([]string, error) {
 		out = append(out, key)
 	}
 	return out, nil
+}
+
+// TestPlatformOverlaysMatchTheCatalog walks the overlay tree back to the
+// platform list, the way TestEveryResourceHasTemplates walks the catalog to
+// the templates. A fragment named values-<x>.yaml.tmpl for an <x> nobody
+// declared renders for no one and would sit there unnoticed.
+func TestPlatformOverlaysMatchTheCatalog(t *testing.T) {
+	found, err := render.PlatformsWithValues()
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := map[string]bool{}
+	for _, p := range Platforms() {
+		known[p.Name] = true
+	}
+	for _, name := range found {
+		if !known[name] {
+			t.Errorf("templates carry values-%s.yaml.tmpl but no platform %q is declared", name, name)
+		}
+	}
+	// And every declared platform has to actually differ somewhere, or it is
+	// a name that produces an empty file.
+	for _, p := range Platforms() {
+		if !slices.Contains(found, p.Name) {
+			t.Errorf("platform %q is declared but no resource has a values-%s.yaml.tmpl", p.Name, p.Name)
+		}
+	}
+}
+
+func TestPlatformMetadata(t *testing.T) {
+	seen := map[string]bool{}
+	for _, p := range Platforms() {
+		if p.Summary == "" || len(p.Needs) == 0 {
+			t.Errorf("%s has an empty Summary or Needs", p.Name)
+		}
+		if seen[p.Name] {
+			t.Errorf("%s is declared twice", p.Name)
+		}
+		seen[p.Name] = true
+		if want := "values-" + p.Name + ".yaml"; p.ValuesFile() != want {
+			t.Errorf("ValuesFile = %q, want %q", p.ValuesFile(), want)
+		}
+	}
+	if _, ok := LookupPlatform("nope"); ok {
+		t.Error("unknown platform reported as found")
+	}
+	if len(PlatformNames()) != len(Platforms()) {
+		t.Error("PlatformNames and Platforms disagree")
+	}
+}
+
+// An overlay is only worth writing when it says something values.yaml does
+// not. A fragment that repeats a default is noise in a file whose whole
+// purpose is to show the difference.
+func TestPlatformOverlaysDifferFromTheBase(t *testing.T) {
+	for _, r := range Resources() {
+		for _, p := range Platforms() {
+			if !render.HasPlatformValues(r.Name, p.Name) {
+				continue
+			}
+			t.Run(r.Name+"/"+p.Name, func(t *testing.T) {
+				base, err := render.ResourceValues(r.Name, testData())
+				if err != nil {
+					t.Fatal(err)
+				}
+				over, ok, err := render.ResourcePlatformValues(r.Name, p.Name, testData())
+				if err != nil || !ok {
+					t.Fatalf("overlay did not render: %v", err)
+				}
+				var baseDoc, overDoc map[string]any
+				if err := yaml.Unmarshal(base, &baseDoc); err != nil {
+					t.Fatal(err)
+				}
+				if err := yaml.Unmarshal(over, &overDoc); err != nil {
+					t.Fatalf("overlay is not valid YAML: %v", err)
+				}
+				if len(overDoc) == 0 {
+					t.Fatal("overlay declares nothing")
+				}
+				for k, v := range overDoc {
+					if reflect.DeepEqual(baseDoc[k], v) {
+						t.Errorf("%s repeats the base value, so it says nothing", k)
+					}
+				}
+			})
+		}
+	}
+}
+
+// Every key an overlay sets has to be one the resource actually owns, or it
+// lands in values.yaml describing nothing and helm ignores it.
+func TestPlatformOverlayKeysBelongToTheResource(t *testing.T) {
+	for _, r := range Resources() {
+		for _, p := range Platforms() {
+			if !render.HasPlatformValues(r.Name, p.Name) {
+				continue
+			}
+			t.Run(r.Name+"/"+p.Name, func(t *testing.T) {
+				over, _, err := render.ResourcePlatformValues(r.Name, p.Name, testData())
+				if err != nil {
+					t.Fatal(err)
+				}
+				keys, err := values.TopLevelKeys(over)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, k := range keys {
+					if !slices.Contains(r.ValuesKeys, k) {
+						t.Errorf("overlay sets %q, which %s does not contribute to values.yaml", k, r.Name)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestLookupPlatformKnown(t *testing.T) {
+	for _, name := range PlatformNames() {
+		if _, ok := LookupPlatform(name); !ok {
+			t.Errorf("%s is listed but not found", name)
+		}
+	}
 }

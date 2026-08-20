@@ -1,0 +1,10 @@
+persistence:
+  # -- Premium SSD via the managed disk CSI driver. managed-csi is Standard
+  # SSD; a database on it will feel the difference.
+  storageClass: managed-csi-premium
+
+podLabels:
+  azure.workload.identity/use: "true"
+
+nodeSelector:
+  kubernetes.azure.com/mode: user

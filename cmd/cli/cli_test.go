@@ -636,3 +636,155 @@ func firstLines(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+func TestPlatformList(t *testing.T) {
+	out := mustRun(t, "platform", "list", "--chart", t.TempDir())
+	for _, want := range []string{"PLATFORMS", "aws", "gcp", "azure", "onprem", "needs:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("listing is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// The listing marks what the chart already carries, so it doubles as status.
+func TestPlatformListMarksWhatTheChartHas(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--platform", "aws")
+	dir := filepath.Join(parent, "demo")
+
+	out := mustRun(t, "platform", "list", "--chart", dir)
+	if !strings.Contains(out, "+ aws") {
+		t.Errorf("aws is not marked as present:\n%s", out)
+	}
+	if strings.Contains(out, "+ gcp") {
+		t.Errorf("gcp is marked as present but was never added:\n%s", out)
+	}
+}
+
+func TestPlatformAdd(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+
+	mustRun(t, "platform", "add", "aws", "gcp", "--chart", dir)
+	for _, name := range []string{"values-aws.yaml", "values-gcp.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was not written", name)
+		}
+	}
+	// Adding again leaves the file alone unless --force.
+	before, err := os.ReadFile(filepath.Join(dir, "values-aws.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "values-aws.yaml"), append(before, []byte("\n# hand-edited\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := mustRun(t, "platform", "add", "aws", "--chart", dir)
+	if !strings.Contains(out, "already exists") {
+		t.Errorf("got %q", out)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "values-aws.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "hand-edited") {
+		t.Error("re-adding overwrote a hand-edited overlay")
+	}
+	mustRun(t, "platform", "add", "aws", "--chart", dir, "--force")
+	after, err = os.ReadFile(filepath.Join(dir, "values-aws.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(after), "hand-edited") {
+		t.Error("--force did not rewrite the overlay")
+	}
+}
+
+func TestPlatformAddDryRun(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+
+	out := mustRun(t, "platform", "add", "aws", "--chart", dir, "--dry-run")
+	if !strings.Contains(out, "values-aws.yaml") {
+		t.Errorf("got %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "values-aws.yaml")); err == nil {
+		t.Error("--dry-run wrote the file")
+	}
+}
+
+func TestPlatformAddRejectsUnknown(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	if _, err := run(t, "platform", "add", "nope", "--chart", filepath.Join(parent, "demo")); err == nil {
+		t.Error("want an error for an unknown platform")
+	}
+}
+
+func TestPlatformAddOutsideAChart(t *testing.T) {
+	if _, err := run(t, "platform", "add", "aws", "--chart", t.TempDir()); err == nil {
+		t.Error("want an error when there is no Chart.yaml")
+	}
+}
+
+// An overlay that does not render is worse than no overlay: it looks like
+// configuration right up until the day someone installs with it.
+func TestCheckAppliesThePlatformOverlay(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	for _, platform := range catalog.PlatformNames() {
+		t.Run(platform, func(t *testing.T) {
+			parent := t.TempDir()
+			mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--platform", platform, "--schema")
+			dir := filepath.Join(parent, "demo")
+
+			out := mustRun(t, "check", "--chart", dir, "--platform", platform, "--strict")
+			if !strings.Contains(out, "no findings") {
+				t.Fatalf("chart does not pass its own check under %s:\n%s", platform, out)
+			}
+			// The report names the overlay, so a passing check is unambiguous.
+			if !strings.Contains(out, "("+platform+")") {
+				t.Errorf("report does not name the overlay:\n%s", out)
+			}
+		})
+	}
+}
+
+// The overlay is additive: it must not suppress the ci/install-values.yaml
+// fallback, or the chart stops rendering for want of an image tag.
+func TestCheckPlatformKeepsTheCIValues(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--platform", "aws")
+	dir := filepath.Join(parent, "demo")
+
+	out := mustRun(t, "check", "--chart", dir, "--platform", "aws")
+	if strings.Contains(out, "image.tag is required") {
+		t.Fatalf("the overlay replaced the base values instead of layering on them:\n%s", out)
+	}
+}
+
+func TestCheckPlatformNeedsTheOverlay(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	_, err := run(t, "check", "--chart", filepath.Join(parent, "demo"), "--platform", "aws")
+	if err == nil {
+		t.Fatal("want an error when the overlay is absent")
+	}
+	if !strings.Contains(err.Error(), "hck platform add aws") {
+		t.Errorf("error does not say how to fix it: %v", err)
+	}
+}
+
+func TestCheckRejectsAnUnknownPlatform(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	if _, err := run(t, "check", "--chart", filepath.Join(parent, "demo"), "--platform", "nope"); err == nil {
+		t.Error("want an error for an unknown platform")
+	}
+}

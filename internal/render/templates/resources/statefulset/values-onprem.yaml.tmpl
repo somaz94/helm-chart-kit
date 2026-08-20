@@ -1,0 +1,10 @@
+persistence:
+  # -- Node-bound storage pins the pod to one node. For a stateful workload
+  # that has to survive node loss, point this at networked storage — NFS,
+  # Ceph, Longhorn — rather than local-path.
+  storageClass: local-path
+
+# -- Private registry credentials. On a self-managed cluster there is no
+# ambient identity granting registry access the way a cloud node role does.
+imagePullSecrets:
+  - name: registry-credentials

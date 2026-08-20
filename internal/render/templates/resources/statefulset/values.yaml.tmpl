@@ -73,6 +73,12 @@ resources:
 nodeSelector: {}
 affinity: {}
 tolerations: []
+
+# -- Spread replicas across zones or nodes. A StatefulSet on zonal volumes
+# wants this: without it the scheduler is free to put every replica, and so
+# every volume, in one zone.
+topologySpreadConstraints: []
+
 volumes: []
 volumeMounts: []
 

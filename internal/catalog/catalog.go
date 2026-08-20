@@ -62,7 +62,7 @@ var resources = []Resource{
 		File:       "statefulset.yaml",
 		Summary:    "Stateful workload with volumeClaimTemplates and a headless Service",
 		APIVersion: "apps/v1",
-		ValuesKeys: []string{"replicaCount", "podManagementPolicy", "updateStrategy", "terminationGracePeriodSeconds", "image", "imagePullSecrets", "containerPort", "env", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "livenessProbe", "readinessProbe", "resources", "nodeSelector", "affinity", "tolerations", "volumes", "volumeMounts", "persistence"},
+		ValuesKeys: []string{"replicaCount", "podManagementPolicy", "updateStrategy", "terminationGracePeriodSeconds", "image", "imagePullSecrets", "containerPort", "env", "podAnnotations", "podLabels", "podSecurityContext", "securityContext", "livenessProbe", "readinessProbe", "resources", "nodeSelector", "affinity", "tolerations", "topologySpreadConstraints", "volumes", "volumeMounts", "persistence"},
 		Requires:   []string{"serviceaccount", "service"},
 	},
 	{

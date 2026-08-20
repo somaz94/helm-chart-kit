@@ -59,6 +59,10 @@ These are load-bearing. Breaking one is a defect, not a style choice.
 
 **The generated schema is permissive on purpose.** Objects stay open; a scalar whose default is empty is typed as the union it actually accepts (`service.nodePort` takes string or integer). An incomplete schema is worse than none — it rejects values the templates handle fine. `--strict` closes the top level only, never a nested object, and `global` stays allowed so subcharts work.
 
+**A platform overlay is additive, never a replacement.** `internal/catalog/platform.go` declares the platforms; `templates/resources/<name>/values-<platform>.yaml.tmpl` carries only what differs there. Helm reads `values.yaml` first and always, so an overlay that repeats a base value says nothing — `TestPlatformOverlaysDifferFromTheBase` fails on it. `check.Options.OverlayFiles` exists for the same reason: passing an overlay as a plain `-f` would suppress the `ci/install-values.yaml` fallback and the chart would stop rendering for want of an image tag.
+
+**An overlay may only set keys its resource owns.** `TestPlatformOverlayKeysBelongToTheResource` compares against `catalog.ValuesKeys`. Without it an overlay can set a key no template reads — dead configuration that looks live. This is what caught `topologySpreadConstraints` being absent from the StatefulSet.
+
 **The values table is delimited, not owned.** `hck docs --write` replaces only what sits between `<!-- hck:values:start -->` and `<!-- hck:values:end -->`. Everything else in the README belongs to whoever wrote it, and `TestReplaceKeepsEverythingOutsideTheMarkers` plus a CI step both pin that.
 
 **A `-- ` prefix is what makes a comment a description.** `internal/docs` reads `values.yaml` through `yaml.Node` head comments, but only a line opening `-- ` starts one. Without that rule the section banners — the `# ====` blocks — would each be attributed to whatever key happened to follow them.

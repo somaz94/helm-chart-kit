@@ -198,6 +198,37 @@ jobs:
           grep -q 'metrics.serviceMonitor.enabled' "$chart/README.md"
           echo "PASS: values table"
 
+      # Every platform overlay has to render, on every preset that produces
+      # one. An overlay that does not render looks like configuration right up
+      # until someone installs with it.
+      - name: Render every preset on every platform
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          for preset in web worker cronjob stateful daemon; do
+            for platform in aws gcp azure onprem; do
+              name="$preset-$platform"
+              hck new "$name" --dir "$workdir" --preset "$preset" --platform "$platform" --schema >/dev/null
+              if [ ! -f "$workdir/$name/values-$platform.yaml" ]; then
+                echo "FAIL: $preset produced no overlay for $platform"
+                exit 1
+              fi
+              hck check --chart "$workdir/$name" --platform "$platform" --strict >/dev/null
+            done
+            echo "  $preset: 4 platforms ok"
+          done
+
+          # Adding to an existing chart, and the guard when the overlay is absent.
+          hck new later --dir "$workdir" >/dev/null
+          hck platform add aws --chart "$workdir/later"
+          hck check --chart "$workdir/later" --platform aws --strict >/dev/null
+          if hck check --chart "$workdir/later" --platform gcp >/dev/null 2>&1; then
+            echo "FAIL: --platform gcp passed without values-gcp.yaml"
+            exit 1
+          fi
+          echo "PASS: platform overlays"
+
       # A chart that never asked for a schema must not acquire one.
       - name: Keep the schema opt-in
         run: |

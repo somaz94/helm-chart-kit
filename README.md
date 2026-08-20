@@ -49,6 +49,7 @@ updated payments-api
 | **Documented values** | Sparse | Every key carries the reason it exists |
 | **Gateway API, ServiceMonitor, ExternalSecret** | — | Yes |
 | **Presets** | One shape | `web`, `worker`, `cronjob`, `stateful`, `daemon` |
+| **Platform values** | None | `aws`, `gcp`, `azure`, `onprem` overlays |
 | **Custom starters** | `--starter`, whole-chart only | Per-resource, composable |
 | **Validation** | `helm lint` | `helm template` + `helm lint` + house rules |
 | **Image tag** | Falls back to `appVersion` | Required — the render fails without one |
@@ -96,6 +97,11 @@ hck add httproute --dry-run
 # Render it and apply the house rules
 hck check
 hck check -f values/prod.yaml --strict
+
+# Platform overlays: only what differs on EKS / GKE / AKS / self-managed
+hck new payments-api --platform aws   # scaffold with values-aws.yaml
+hck platform add gcp azure            # add to an existing chart
+hck check --platform aws              # check it AS INSTALLED there
 
 # Document the values as a Markdown table
 hck docs                              # print it
@@ -190,6 +196,56 @@ still work.
 `hck schema --check` is the CI gate: it rebuilds the schema and fails if the
 committed file differs, which catches a `values.yaml` edited by hand without
 the schema following it.
+
+<br/>
+
+## Platform overlays
+
+The same chart wants different values on EKS, GKE, AKS and a self-managed
+cluster — an IAM role annotation here, an ingress class there, a storage class
+somewhere else. `hck` generates those as overlays:
+
+```bash
+hck new payments-api --platform aws          # scaffold with values-aws.yaml
+hck platform add gcp azure                   # add to a chart you already have
+hck platform list                            # what exists, and what this chart has
+```
+
+An overlay is **not a replacement**. Helm reads `values.yaml` first and always,
+so the file carries only what is different:
+
+```yaml
+# values-aws.yaml
+serviceAccount:
+  annotations:
+    # -- IAM role the pods assume, via IRSA or EKS Pod Identity.
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/payments-api
+
+ingress:
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/target-type: ip
+```
+
+```bash
+helm install payments-api . -f values-aws.yaml
+```
+
+Only the resources the chart actually has contribute: a `worker` chart gets the
+ServiceAccount annotation and no ingress class, because it has no Ingress. A
+chart with nothing platform-specific in it gets no file at all rather than one
+consisting of a header.
+
+**`hck check --platform aws` renders the chart with the overlay applied.** An
+overlay that does not render is worse than no overlay — it looks like
+configuration right up until someone installs with it.
+
+| Platform | Covers |
+|---|---|
+| `aws` | IRSA, ALB ingress, NLB services, gp3 volumes, zone spread, Secrets Manager |
+| `gcp` | Workload Identity, GCE ingress, NEG services, pd-balanced volumes, Secret Manager |
+| `azure` | Workload Identity (including the pod label everyone forgets), App Gateway, managed-csi, Key Vault |
+| `onprem` | ingress-nginx, MetalLB, a storage class you provide, Vault, private registry pull secrets |
 
 <br/>
 

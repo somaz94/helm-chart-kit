@@ -70,6 +70,11 @@ type Options struct {
 	// ValuesFiles are extra -f arguments. When empty and the chart carries
 	// ci/install-values.yaml, that file is used.
 	ValuesFiles []string
+	// OverlayFiles are appended after ValuesFiles. Unlike an explicit -f they
+	// do not suppress the ci/install-values.yaml fallback: a platform overlay
+	// says what differs on that platform and nothing about the image tag the
+	// chart still requires, so replacing the base with it renders nothing.
+	OverlayFiles []string
 	// SkipRender runs only the rules that read the chart directory itself.
 	SkipRender bool
 }

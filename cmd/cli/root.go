@@ -32,6 +32,7 @@ there.`,
 		newListCmd(),
 		newCheckCmd(),
 		newDocsCmd(),
+		newPlatformCmd(),
 		newSchemaCmd(),
 		newVersionCmd(),
 	)

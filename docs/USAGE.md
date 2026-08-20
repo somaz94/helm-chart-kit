@@ -20,6 +20,7 @@ hck new <chart-name> [flags]
 | `--app-version` | `1.0.0` | Version of the application the chart deploys |
 | `--schema` | `false` | Also write `values.schema.json` |
 | `--schema-strict` | `false` | Write `values.schema.json` and reject undeclared top-level keys |
+| `--platform` | — | Platform values overlays to write, comma-separated: `aws`, `gcp`, `azure`, `onprem` |
 | `--dry-run` | `false` | Print what would be written and exit |
 
 ```bash
@@ -84,6 +85,7 @@ hck check [flags]
 |---|---|---|
 | `--chart` | `.` | Chart directory |
 | `-f, --values` | — | Values files passed to helm; repeatable |
+| `--platform` | — | Also apply these platform overlays, comma-separated |
 | `--strict` | `false` | Fail on warnings as well as errors |
 | `--print` | `false` | Print the rendered manifests |
 | `--no-render` | `false` | Skip helm; run only the rules that read the chart directory |
@@ -137,6 +139,46 @@ A chart that has a schema must describe every key its `values.yaml` declares, or
 
 - `hck add` regenerates the schema whenever it appends to `values.yaml`. A chart with no schema does not get one — the file is opt-in.
 - `hck schema --check` rebuilds and compares, so CI catches a `values.yaml` edited by hand without the schema following it.
+
+<br/>
+
+## hck platform
+
+Platform overlays carry the values that differ between one target and another, and nothing else.
+
+```bash
+hck platform list                    # known platforms, and which this chart has
+hck platform add aws                 # write values-aws.yaml
+hck platform add gcp azure           # several at once
+hck platform add onprem --dry-run
+hck platform add aws --force         # rewrite one that exists
+```
+
+| Platform | Covers |
+|---|---|
+| `aws` | IRSA, ALB ingress, NLB services, gp3 volumes, zone spread, Secrets Manager |
+| `gcp` | Workload Identity, GCE ingress, NEG services, pd-balanced volumes, Secret Manager |
+| `azure` | Workload Identity including the required pod label, Application Gateway, managed-csi, Key Vault |
+| `onprem` | ingress-nginx, MetalLB, a storage class you provide, Vault, private registry pull secrets |
+
+An overlay is not a replacement. Helm reads `values.yaml` first and always, so the generated file carries only the difference:
+
+```bash
+helm install payments-api . -f values-aws.yaml
+```
+
+Only the resources the chart actually carries contribute. A `worker` chart gets the ServiceAccount annotation and no ingress class, because it has no Ingress; a chart with nothing platform-specific in it gets no file rather than one consisting of a header.
+
+`hck platform add` never overwrites an overlay that exists — edit it freely — unless `--force` is passed.
+
+### Checking one
+
+```bash
+hck check --platform aws
+hck check --platform aws,gcp --strict
+```
+
+This renders the chart **with the overlay applied**, which is the only way to find out that it renders at all. The overlay is additive: it layers on top of `ci/install-values.yaml` rather than replacing it, so the chart still gets the image tag it requires.
 
 <br/>
 

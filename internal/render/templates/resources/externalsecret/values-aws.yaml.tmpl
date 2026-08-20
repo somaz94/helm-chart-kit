@@ -1,0 +1,6 @@
+externalSecret:
+  secretStoreRef:
+    # -- SecretStore pointing at AWS Secrets Manager. The store itself is
+    # cluster infrastructure and is not created by this chart.
+    name: aws-secretsmanager
+    kind: ClusterSecretStore

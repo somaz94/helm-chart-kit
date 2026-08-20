@@ -687,3 +687,130 @@ func TestChartResourcesReadsTheTemplateDirectory(t *testing.T) {
 		t.Errorf("first resource is %q, want the workload", got[0].Name)
 	}
 }
+
+func TestBuildPlatformValues(t *testing.T) {
+	c := newChart(t, "web")
+	resources, err := ChartResources(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aws, _ := catalog.LookupPlatform("aws")
+
+	out, ok, err := BuildPlatformValues(DataFor(c), resources, aws)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	body := string(out)
+	for _, want := range []string{
+		"# =====",                                // header
+		"helm install demo . -f values-aws.yaml", // the command it is for
+		"AWS Load Balancer Controller",           // what it expects
+		"eks.amazonaws.com/role-arn",             // serviceaccount
+		"alb.ingress.kubernetes.io/target-type",  // ingress
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overlay is missing %q", want)
+		}
+	}
+	// It has to parse, or helm rejects the -f.
+	if _, err := values.TopLevelKeys(out); err != nil {
+		t.Fatalf("overlay is not valid YAML: %v", err)
+	}
+}
+
+// A chart whose resources do not differ on a platform gets no file at all,
+// rather than one consisting of a header.
+func TestBuildPlatformValuesEmptyWhenNothingDiffers(t *testing.T) {
+	aws, _ := catalog.LookupPlatform("aws")
+	cm, _ := catalog.LookupResource("configmap")
+	_, ok, err := BuildPlatformValues(DataFor(newChart(t, "web")), []catalog.Resource{cm}, aws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("wrote an overlay for a chart with nothing platform-specific in it")
+	}
+}
+
+// The overlay only carries keys the chart's own resources contribute; a
+// worker has no Ingress, so no ingress annotations.
+func TestBuildPlatformValuesFollowsTheChartsResources(t *testing.T) {
+	c := newChart(t, "worker")
+	resources, err := ChartResources(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aws, _ := catalog.LookupPlatform("aws")
+	out, ok, err := BuildPlatformValues(DataFor(c), resources, aws)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if strings.Contains(string(out), "alb.ingress") {
+		t.Error("worker chart got ingress annotations for an Ingress it does not have")
+	}
+	if !strings.Contains(string(out), "eks.amazonaws.com/role-arn") {
+		t.Error("worker chart lost the ServiceAccount annotation it should have")
+	}
+}
+
+func TestPlanNewWritesPlatformOverlays(t *testing.T) {
+	parent := t.TempDir()
+	plan, err := PlanNew(NewOptions{
+		Parent: parent, Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "web",
+		Platforms: []string{"aws", "gcp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"values-aws.yaml", "values-gcp.yaml"} {
+		if _, err := os.Stat(filepath.Join(plan.ChartDir, name)); err != nil {
+			t.Errorf("%s was not written: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(plan.ChartDir, "values-azure.yaml")); err == nil {
+		t.Error("wrote an overlay that was not asked for")
+	}
+	// The note tells the user what the platform expects to already exist.
+	var noted bool
+	for _, n := range plan.Notes {
+		if strings.Contains(n, "AWS Load Balancer Controller") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("plan does not report what aws expects: %v", plan.Notes)
+	}
+}
+
+func TestPlanNewRejectsAnUnknownPlatform(t *testing.T) {
+	_, err := PlanNew(NewOptions{
+		Parent: t.TempDir(), Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "web",
+		Platforms: []string{"nope"},
+	})
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(err.Error(), "unknown platform") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestChartPlatforms(t *testing.T) {
+	c := newChart(t, "web")
+	if got := ChartPlatforms(c); len(got) != 0 {
+		t.Errorf("a fresh chart reports %v", got)
+	}
+	aws, _ := catalog.LookupPlatform("aws")
+	if err := os.WriteFile(filepath.Join(c.Dir, aws.ValuesFile()), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := ChartPlatforms(c)
+	if len(got) != 1 || got[0].Name != "aws" {
+		t.Errorf("got %v, want just aws", got)
+	}
+}

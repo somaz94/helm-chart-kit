@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"sort"
 	"strings"
 	"text/template"
 )
@@ -96,6 +97,54 @@ func ResourceValues(resource string, d Data) ([]byte, error) {
 // fragments into the chart's values.schema.json.
 func ResourceSchema(resource string, d Data) ([]byte, error) {
 	return renderPath(path.Join("templates/resources", resource, "schema.json.tmpl"), d)
+}
+
+// ResourcePlatformValues renders one resource's values overlay for a platform.
+// Most resources have none — a ConfigMap looks the same everywhere — and the
+// absence is reported rather than treated as an error.
+func ResourcePlatformValues(resource, platform string, d Data) ([]byte, bool, error) {
+	p := path.Join("templates/resources", resource, "values-"+platform+".yaml.tmpl")
+	if _, err := fs.Stat(files, p); err != nil {
+		return nil, false, nil
+	}
+	out, err := renderPath(p, d)
+	return out, err == nil, err
+}
+
+// HasPlatformValues reports whether a resource differs on a platform. It backs
+// the test that keeps the overlay tree and the platform list in step.
+func HasPlatformValues(resource, platform string) bool {
+	_, err := fs.Stat(files, path.Join("templates/resources", resource, "values-"+platform+".yaml.tmpl"))
+	return err == nil
+}
+
+// PlatformsWithValues lists the platform suffixes present in the embedded
+// tree, so a fragment named for a platform nobody declared is caught.
+func PlatformsWithValues() ([]string, error) {
+	seen := map[string]bool{}
+	err := fs.WalkDir(files, "templates/resources", func(p string, e fs.DirEntry, err error) error {
+		if err != nil || e.IsDir() {
+			return err
+		}
+		name := e.Name()
+		rest, ok := strings.CutPrefix(name, "values-")
+		if !ok {
+			return nil
+		}
+		if suffix, ok := strings.CutSuffix(rest, ".yaml.tmpl"); ok {
+			seen[suffix] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // BaseSchema renders the schema fragment for the keys every chart carries,

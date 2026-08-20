@@ -1,0 +1,6 @@
+serviceAccount:
+  annotations:
+    # -- IAM role the pods assume, via IRSA or EKS Pod Identity. The role's
+    # trust policy has to name this namespace and service account, or the pod
+    # gets credentials for nothing.
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/[[ .ChartName ]]

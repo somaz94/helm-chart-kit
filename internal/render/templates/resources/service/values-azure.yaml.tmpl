@@ -1,0 +1,7 @@
+service:
+  annotations:
+    # -- Internal keeps the load balancer on the VNet. Remove for a public IP.
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    # -- The health probe defaults to the service port, which for an HTTP
+    # workload marks it healthy as soon as the socket accepts.
+    service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz

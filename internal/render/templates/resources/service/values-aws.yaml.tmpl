@@ -1,0 +1,12 @@
+service:
+  annotations:
+    # -- NLB rather than the legacy in-tree ELB. Needs the AWS Load Balancer
+    # Controller; without it the annotations are ignored and you get a
+    # Classic LB.
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    # -- ip targets the pod directly, so traffic does not take a second hop
+    # through kube-proxy and the client IP survives.
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    # -- internal keeps it off the public internet. Change to internet-facing
+    # deliberately.
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal

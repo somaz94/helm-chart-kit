@@ -1,0 +1,6 @@
+externalSecret:
+  secretStoreRef:
+    # -- SecretStore pointing at HashiCorp Vault, the usual self-managed
+    # backend. The store is cluster infrastructure, not part of this chart.
+    name: vault
+    kind: ClusterSecretStore

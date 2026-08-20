@@ -1,0 +1,8 @@
+service:
+  # -- MetalLB hands out an address from a pool; without a load balancer
+  # implementation a LoadBalancer Service stays Pending forever.
+  type: LoadBalancer
+  annotations:
+    # -- Pool to allocate from. Named pools keep production and staging off
+    # the same range.
+    metallb.universe.tf/address-pool: default

@@ -1,0 +1,9 @@
+ingress:
+  # -- Application Gateway Ingress Controller. On a cluster using the managed
+  # NGINX add-on instead, this is webapprouting.kubernetes.azure.com.
+  className: azure-application-gateway
+  annotations:
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    appgw.ingress.kubernetes.io/health-probe-path: /healthz
+    # -- Private frontend IP. Requires the gateway to have one configured.
+    appgw.ingress.kubernetes.io/use-private-ip: "true"

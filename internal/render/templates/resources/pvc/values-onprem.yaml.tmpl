@@ -1,0 +1,4 @@
+persistence:
+  # -- Whatever the cluster provides. local-path is node-bound, so a pod that
+  # moves loses the volume — fine for a cache, wrong for a database.
+  storageClass: local-path

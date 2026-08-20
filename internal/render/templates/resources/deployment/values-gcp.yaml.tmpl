@@ -1,0 +1,9 @@
+# -- Spread replicas across zones. ScheduleAnyway rather than DoNotSchedule: a
+# hard constraint turns a zone outage into a scheduling failure.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: [[ .ChartName ]]

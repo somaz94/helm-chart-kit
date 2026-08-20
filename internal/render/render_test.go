@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -199,5 +200,53 @@ func TestRenderFailsOnAnUnknownField(t *testing.T) {
 	}
 	if strings.Contains(string(out), "<no value>") {
 		t.Error("a field rendered as <no value>")
+	}
+}
+
+func TestPlatformValues(t *testing.T) {
+	// serviceaccount differs on every cloud; configmap differs nowhere.
+	if !HasPlatformValues("serviceaccount", "aws") {
+		t.Error("serviceaccount has no aws overlay")
+	}
+	if HasPlatformValues("configmap", "aws") {
+		t.Error("configmap should look the same everywhere")
+	}
+	if HasPlatformValues("serviceaccount", "no-such-cloud") {
+		t.Error("unknown platform reported as present")
+	}
+
+	out, ok, err := ResourcePlatformValues("serviceaccount", "aws", testData())
+	if err != nil || !ok {
+		t.Fatalf("overlay did not render: ok=%v err=%v", ok, err)
+	}
+	assertFullyRendered(t, "serviceaccount/values-aws.yaml", out)
+
+	// A resource with no overlay is not an error, it is simply absent.
+	if _, ok, err := ResourcePlatformValues("configmap", "aws", testData()); err != nil || ok {
+		t.Errorf("ok=%v err=%v, want false and no error", ok, err)
+	}
+	if _, ok, err := ResourcePlatformValues("serviceaccount", "nope", testData()); err != nil || ok {
+		t.Errorf("ok=%v err=%v, want false and no error", ok, err)
+	}
+}
+
+func TestPlatformsWithValues(t *testing.T) {
+	got, err := PlatformsWithValues()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"aws", "azure", "gcp", "onprem"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("%q missing from %v", want, got)
+		}
+	}
+	if !slices.IsSorted(got) {
+		t.Errorf("not sorted, so the result is not stable: %v", got)
+	}
+	// values.yaml.tmpl must not be mistaken for a platform named "yaml".
+	for _, name := range got {
+		if strings.Contains(name, ".") || name == "" {
+			t.Errorf("bogus platform name %q", name)
+		}
 	}
 }

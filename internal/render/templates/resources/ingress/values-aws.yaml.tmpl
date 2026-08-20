@@ -1,0 +1,15 @@
+ingress:
+  # -- ALB, provisioned by the AWS Load Balancer Controller
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    # -- ip targets pods directly; instance targets the NodePort
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # -- ACM certificate. Leave it out and the controller discovers one whose
+    # domain matches the host, which is convenient and occasionally surprising.
+    alb.ingress.kubernetes.io/certificate-arn: ""
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    # -- Share one ALB across ingresses in this group, so each chart does not
+    # provision a load balancer of its own.
+    alb.ingress.kubernetes.io/group.name: [[ .ChartName ]]

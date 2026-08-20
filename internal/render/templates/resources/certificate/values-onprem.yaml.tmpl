@@ -1,0 +1,6 @@
+certificate:
+  issuerRef:
+    # -- Internal CA rather than a public one: an air-gapped or private-DNS
+    # cluster cannot answer an ACME HTTP-01 or DNS-01 challenge.
+    name: internal-ca
+    kind: ClusterIssuer

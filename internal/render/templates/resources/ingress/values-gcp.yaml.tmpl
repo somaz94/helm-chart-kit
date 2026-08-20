@@ -1,0 +1,14 @@
+ingress:
+  # -- GCE ingress, which provisions a Google Cloud Load Balancer
+  className: gce
+  annotations:
+    # -- internal for a regional internal LB; drop it for a global external one
+    kubernetes.io/ingress.class: gce-internal
+    # -- Reserved static IP, by name. Without one the address changes whenever
+    # the ingress is recreated, and DNS goes stale.
+    kubernetes.io/ingress.global-static-ip-name: ""
+    # -- Google-managed certificate, by name. Provision it separately; it can
+    # take up to an hour to become active.
+    networking.gke.io/managed-certificates: ""
+    # -- Off once TLS is in place, so port 80 is not silently served.
+    kubernetes.io/ingress.allow-http: "false"

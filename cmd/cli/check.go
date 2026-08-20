@@ -3,7 +3,11 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/somaz94/helm-chart-kit/internal/catalog"
 	"github.com/somaz94/helm-chart-kit/internal/chart"
 	"github.com/somaz94/helm-chart-kit/internal/check"
 	"github.com/spf13/cobra"
@@ -13,6 +17,7 @@ func newCheckCmd() *cobra.Command {
 	var opts struct {
 		chartDir    string
 		valuesFiles []string
+		platforms   []string
 		strict      bool
 		printOutput bool
 		noRender    bool
@@ -31,6 +36,8 @@ defaults — which is the point of requiring one.`,
 		Example: `  hck check
   hck check --chart ./charts/payments-api
   hck check -f values/prod.yaml --strict
+  hck check --platform aws
+  hck check --platform aws,gcp --strict
   hck check --print`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := chart.Find(opts.chartDir)
@@ -42,9 +49,25 @@ defaults — which is the point of requiring one.`,
 				return err
 			}
 
+			// A platform overlay that does not render is worse than no
+			// overlay: it looks like configuration until the day it is used.
+			var overlays []string
+			for _, name := range splitList(opts.platforms) {
+				pf, ok := catalog.LookupPlatform(name)
+				if !ok {
+					return fmt.Errorf("unknown platform %q (known: %s)", name, strings.Join(catalog.PlatformNames(), ", "))
+				}
+				path := filepath.Join(c.Dir, pf.ValuesFile())
+				if _, err := os.Stat(path); err != nil {
+					return fmt.Errorf("%s has no %s — run: hck platform add %s", c.Meta.Name, pf.ValuesFile(), pf.Name)
+				}
+				overlays = append(overlays, path)
+			}
+
 			rep, err := check.Run(c, check.Options{
-				ValuesFiles: opts.valuesFiles,
-				SkipRender:  opts.noRender,
+				ValuesFiles:  opts.valuesFiles,
+				OverlayFiles: overlays,
+				SkipRender:   opts.noRender,
 			})
 			if err != nil {
 				if errors.Is(err, check.ErrNoHelm) {
@@ -60,7 +83,11 @@ defaults — which is the point of requiring one.`,
 				fprintf(out, "%s\n", rep.Rendered)
 			}
 
-			fprintf(out, "%s %s\n\n", p.bold("check"), c.Meta.Name)
+			label := c.Meta.Name
+			if names := splitList(opts.platforms); len(names) > 0 {
+				label += " (" + strings.Join(names, " + ") + ")"
+			}
+			fprintf(out, "%s %s\n\n", p.bold("check"), label)
 			for _, f := range rep.Findings {
 				tag := p.yellow("warn ")
 				if f.Severity == check.Error {
@@ -86,6 +113,7 @@ defaults — which is the point of requiring one.`,
 
 	cmd.Flags().StringVar(&opts.chartDir, "chart", ".", "chart directory; parent directories are searched for Chart.yaml")
 	cmd.Flags().StringSliceVarP(&opts.valuesFiles, "values", "f", nil, "values files passed to helm; repeatable")
+	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "also apply these platform overlays: "+strings.Join(catalog.PlatformNames(), ", "))
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "fail on warnings as well as errors")
 	cmd.Flags().BoolVar(&opts.printOutput, "print", false, "print the rendered manifests")
 	cmd.Flags().BoolVar(&opts.noRender, "no-render", false, "skip helm; run only the rules that read the chart directory")

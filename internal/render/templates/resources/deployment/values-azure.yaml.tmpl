@@ -1,0 +1,19 @@
+# -- Without this label the webhook does not inject the projected token, and
+# the workload falls back to whatever identity the node has. It is the single
+# easiest thing to forget about AKS Workload Identity.
+podLabels:
+  azure.workload.identity/use: "true"
+
+# -- Spread replicas across availability zones, where the region has them.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: [[ .ChartName ]]
+
+# -- Keep application pods off the system node pool, which AKS reserves for
+# CoreDNS, metrics-server and the rest of the control-plane add-ons.
+nodeSelector:
+  kubernetes.azure.com/mode: user
