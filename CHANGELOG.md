@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.2.0](https://github.com/somaz94/helm-chart-kit/compare/v0.1.0...v0.2.0) (2026-08-20)
+
+### Features
+
+- add hck init to scaffold a chart by answering questions ([6842597](https://github.com/somaz94/helm-chart-kit/commit/68425978999280f6b17cf8882057d8bcf4b1f1aa))
+- add dev, staging and prod environment overlays ([322fdcc](https://github.com/somaz94/helm-chart-kit/commit/322fdcc0c2bcf7721034ffdbb921af670449b7c8))
+- add sealedsecret, issuer, referencegrant, scaledjob and grafanadashboard ([a83b76b](https://github.com/somaz94/helm-chart-kit/commit/a83b76b0d25c854a66197bc6debf7d4ebe26cf69))
+- add platform values overlays for aws, gcp, azure and onprem ([e017b02](https://github.com/somaz94/helm-chart-kit/commit/e017b023ac3facb79d2af2a72c73807a1b4677ab))
+
+### Bug Fixes
+
+- resolve overlay key collisions and unrendered resource defects ([b832d15](https://github.com/somaz94/helm-chart-kit/commit/b832d15950f00a3a1bd660a1a5d1bc2ac49ac90c))
+
+### Tests
+
+- make the render coverage check assert what its name claims ([4fed7eb](https://github.com/somaz94/helm-chart-kit/commit/4fed7eb48c0f96b87cd786bee7cca4cc4cc1ae09))
+
+### Continuous Integration
+
+- retry mirror pushes on transient remote failures ([b1d0626](https://github.com/somaz94/helm-chart-kit/commit/b1d0626bcc81a02be2495435a7e26f628019accf))
+- drop the dead issue-close trigger from changelog generation ([b7875fd](https://github.com/somaz94/helm-chart-kit/commit/b7875fd80a4c05008135ff769097e9199dba7efc))
+
+### Contributors
+
+- somaz
+
+<br/>
+
 ## [v0.1.0](https://github.com/somaz94/helm-chart-kit/releases/tag/v0.1.0) (2026-08-20)
 
 ### Features
