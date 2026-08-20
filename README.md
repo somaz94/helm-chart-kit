@@ -421,6 +421,8 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK031` | warn | HPA and a KEDA ScaledObject both scale the workload |
 | `HCK032` | warn | HPA alongside a VPA in an evicting update mode |
 | `HCK033` | warn | A scaler names a workload the chart does not render |
+| `HCK034` | warn | Chart creates an Issuer its own Certificate does not use |
+| `HCK035` | warn | A Service forwards to a container port name nothing declares |
 
 Warnings pass by default; `--strict` fails on them. `hck list rules` prints the same table with the wording `hck check` uses.
 

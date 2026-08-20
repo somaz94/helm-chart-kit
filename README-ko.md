@@ -385,6 +385,8 @@ README가 없는 차트에는 하나 만들어 줍니다. `hck docs --check`가 
 | `HCK031` | warn | HPA와 KEDA ScaledObject가 동시에 워크로드를 스케일링 |
 | `HCK032` | warn | 파드를 축출하는 update mode의 VPA가 HPA와 공존 |
 | `HCK033` | warn | 스케일러가 차트에 없는 workload를 가리킴 |
+| `HCK034` | warn | 차트가 만든 Issuer를 자기 Certificate가 쓰지 않음 |
+| `HCK035` | warn | Service가 아무도 선언하지 않은 컨테이너 포트 이름으로 넘김 |
 
 경고는 기본적으로 통과하고, `--strict`를 주면 실패합니다. `hck list rules`를 실행하면 `hck check`가 쓰는 문구 그대로 같은 표를 볼 수 있습니다.
 

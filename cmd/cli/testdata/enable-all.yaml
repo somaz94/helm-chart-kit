@@ -11,7 +11,15 @@ rbac: {create: true, rules: [{apiGroups: [""], resources: [pods], verbs: [get]}]
 metrics: {serviceMonitor: {enabled: true}}
 prometheusRule: {enabled: true, rules: [{alert: X, expr: "up == 0"}]}
 externalSecret: {enabled: true}
-certificate: {enabled: true}
+# The Certificate points at the Issuer this same chart renders, rather than at
+# the ClusterIssuer it defaults to. A fixture that turns on both and wires
+# neither to the other is demonstrating the mistake HCK034 exists to catch.
+# The name is the chart fullname, so this fixture expects a chart called "all".
+certificate:
+  enabled: true
+  issuerRef:
+    name: all
+    kind: Issuer
 podMonitor: {enabled: true}
 verticalPodAutoscaler: {enabled: true, updateMode: "Off"}
 httpRoute: {enabled: true}

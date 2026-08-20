@@ -512,3 +512,174 @@ func findRule(findings []Finding, id string) *Finding {
 	}
 	return nil
 }
+
+func issuer(name string) object { return object{Kind: "Issuer", Name: name} }
+
+func certificate(issuerKind, issuerName string) object {
+	return object{Kind: "Certificate", Name: "app", Spec: map[string]any{
+		"issuerRef": map[string]any{"kind": issuerKind, "name": issuerName},
+	}}
+}
+
+// "hck add certificate issuer" leaves the two unconnected: the Certificate
+// keeps its default ClusterIssuer and the Issuer the chart just created is
+// used by nothing. Both apply cleanly, so nothing says so.
+func TestUnusedIssuerIsReported(t *testing.T) {
+	t.Run("wired to the chart's own issuer", func(t *testing.T) {
+		if got := findRule(setRules([]object{issuer("app"), certificate("Issuer", "app")}), "HCK034"); got != nil {
+			t.Errorf("fired on a Certificate that uses the chart's Issuer: %v", got)
+		}
+	})
+	t.Run("pointed somewhere else", func(t *testing.T) {
+		got := findRule(setRules([]object{issuer("app"), certificate("ClusterIssuer", "letsencrypt-prod")}), "HCK034")
+		if got == nil {
+			t.Fatal("an Issuer nothing uses was not reported")
+		}
+		if !strings.Contains(got.Message, "ClusterIssuer/letsencrypt-prod") {
+			t.Errorf("the message does not say where the Certificate points: %q", got.Message)
+		}
+	})
+	t.Run("an issuer other releases use is left alone", func(t *testing.T) {
+		if got := findRule(setRules([]object{issuer("app")}), "HCK034"); got != nil {
+			t.Errorf("fired on a chart with no Certificate at all: %v", got)
+		}
+	})
+	t.Run("a certificate on its own is left alone", func(t *testing.T) {
+		if got := findRule(setRules([]object{certificate("ClusterIssuer", "letsencrypt-prod")}), "HCK034"); got != nil {
+			t.Errorf("fired on a chart with no Issuer: %v", got)
+		}
+	})
+}
+
+func service(selector map[string]any, ports ...map[string]any) object {
+	as := make([]any, 0, len(ports))
+	for _, p := range ports {
+		as = append(as, p)
+	}
+	return object{Kind: "Service", Name: "app", Spec: map[string]any{
+		"selector": selector,
+		"ports":    as,
+	}}
+}
+
+func workloadWithPorts(kind string, portNames ...string) object {
+	ports := make([]any, 0, len(portNames))
+	for _, n := range portNames {
+		ports = append(ports, map[string]any{"name": n, "containerPort": 8080})
+	}
+	container := map[string]any{"name": "app", "image": "app:1"}
+	if len(ports) > 0 {
+		container["ports"] = ports
+	}
+	return object{Kind: kind, Name: "app", Spec: map[string]any{
+		"template": map[string]any{"spec": map[string]any{
+			"containers": []any{container},
+		}},
+	}}
+}
+
+// A named targetPort is the right way to write a Service, and it is silent
+// when it is wrong: the endpoints exist, the name resolves to nothing, and
+// every connection is refused.
+func TestServiceTargetPortIsChecked(t *testing.T) {
+	selector := map[string]any{"app.kubernetes.io/name": "app"}
+	named := map[string]any{"name": "http", "targetPort": "http"}
+
+	t.Run("the container declares it", func(t *testing.T) {
+		objs := []object{workloadWithPorts("Deployment", "http"), service(selector, named)}
+		if got := findRule(setRules(objs), "HCK035"); got != nil {
+			t.Errorf("fired on a Service whose target port exists: %v", got)
+		}
+	})
+	t.Run("nothing declares it", func(t *testing.T) {
+		// What "hck add service" against a daemon chart produces: the
+		// DaemonSet template declares no container port at all.
+		objs := []object{workloadWithPorts("DaemonSet"), service(selector, named)}
+		got := findRule(setRules(objs), "HCK035")
+		if got == nil {
+			t.Fatal("a Service forwarding to a name nothing declares was not reported")
+		}
+		if !strings.Contains(got.Message, `"http"`) {
+			t.Errorf("got %q", got.Message)
+		}
+	})
+	t.Run("a number is not a name", func(t *testing.T) {
+		objs := []object{workloadWithPorts("DaemonSet"), service(selector, map[string]any{"name": "http", "targetPort": 8080})}
+		if got := findRule(setRules(objs), "HCK035"); got != nil {
+			t.Errorf("fired on a numeric targetPort: %v", got)
+		}
+	})
+	t.Run("a Service that does not choose its endpoints", func(t *testing.T) {
+		objs := []object{workloadWithPorts("DaemonSet"), service(nil, named)}
+		if got := findRule(setRules(objs), "HCK035"); got != nil {
+			t.Errorf("fired on a Service with no selector: %v", got)
+		}
+	})
+	t.Run("a chart that renders no pod at all", func(t *testing.T) {
+		// The Service is for somebody else's pods, and this says nothing.
+		if got := findRule(setRules([]object{service(selector, named)}), "HCK035"); got != nil {
+			t.Errorf("fired on a chart with no workload: %v", got)
+		}
+	})
+	t.Run("every port is checked, not just the first", func(t *testing.T) {
+		objs := []object{
+			workloadWithPorts("Deployment", "http"),
+			service(selector, named, map[string]any{"name": "metrics", "targetPort": "metrics"}),
+		}
+		got := findRule(setRules(objs), "HCK035")
+		if got == nil {
+			t.Fatal("a second port forwarding to nothing was not reported")
+		}
+		if !strings.Contains(got.Message, "metrics") {
+			t.Errorf("got %q", got.Message)
+		}
+	})
+}
+
+// A container with limits but no memory limit has one thing wrong with it, not
+// two: HCK024 says the memory limit is missing, and HCK025 stays quiet rather
+// than also complaining about the CPU limit that is there.
+func TestACpuLimitWithoutAMemoryLimitIsOneFinding(t *testing.T) {
+	got := findingsByRule(t, deploymentWith(map[string]any{
+		"name":      "app",
+		"image":     "ghcr.io/acme/app:1.2.3",
+		"resources": map[string]any{"requests": map[string]any{"cpu": "100m"}, "limits": map[string]any{"cpu": "1"}},
+	}, nil))
+	if f, ok := got["HCK024"]; !ok {
+		t.Error("HCK024 did not fire on limits with no memory")
+	} else if !strings.Contains(f.Message, "memory limit") {
+		t.Errorf("got %q", f.Message)
+	}
+	if f, ok := got["HCK025"]; ok {
+		t.Errorf("HCK025 also fired: %q", f.Message)
+	}
+}
+
+// The rendered manifests come from helm and are trusted to be YAML, not to be
+// shaped the way a rule expects. A malformed entry is skipped rather than
+// panicking the whole check.
+func TestServiceTargetPortRuleIgnoresMalformedInput(t *testing.T) {
+	selector := map[string]any{"app.kubernetes.io/name": "app"}
+	workload := object{Kind: "Deployment", Name: "app", Spec: map[string]any{
+		"template": map[string]any{"spec": map[string]any{
+			"containers": []any{
+				"not a container",
+				map[string]any{"name": "app", "ports": []any{"not a port", map[string]any{"name": "http"}}},
+			},
+		}},
+	}}
+	svc := object{Kind: "Service", Name: "app", Spec: map[string]any{
+		"selector": selector,
+		"ports":    []any{"not a port", map[string]any{"name": "http", "targetPort": "http"}},
+	}}
+	if got := findRule(setRules([]object{workload, svc}), "HCK035"); got != nil {
+		t.Errorf("fired despite the container declaring http: %v", got)
+	}
+
+	// And the name really is being read out of that malformed list, rather
+	// than the rule giving up on it.
+	svc.Spec["ports"] = []any{map[string]any{"name": "metrics", "targetPort": "metrics"}}
+	if got := findRule(setRules([]object{workload, svc}), "HCK035"); got == nil {
+		t.Error("a port nothing declares was not reported")
+	}
+}

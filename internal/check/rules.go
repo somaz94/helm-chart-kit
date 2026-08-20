@@ -262,6 +262,139 @@ var rules = []Rule{
 		Summary: "a scaler names a workload the chart does not render",
 		set:     danglingScaleTargetRule,
 	},
+	{
+		ID: "HCK034", Severity: Warn, Scope: SetScope,
+		Summary: "chart creates an Issuer its own Certificate does not use",
+		set:     unusedIssuerRule,
+	},
+	{
+		ID: "HCK035", Severity: Warn, Scope: SetScope,
+		Summary: "a Service forwards to a container port name nothing declares",
+		set:     serviceTargetPortRule,
+	},
+}
+
+// unusedIssuerRule catches a chart that creates an Issuer and then does not
+// use it.
+//
+// "hck add certificate issuer" produces exactly this. The Certificate keeps
+// its default issuerRef — a ClusterIssuer that lives outside the chart — and
+// the namespaced Issuer the chart just created is referenced by nothing. Both
+// objects apply cleanly, so the only symptom is a Certificate waiting on an
+// issuer somebody else was supposed to provide.
+//
+// A chart with an Issuer and no Certificate is left alone: an issuer other
+// releases use is a reasonable thing to ship on its own.
+func unusedIssuerRule(objs []object) []hit {
+	used := map[string]bool{}
+	var pointsAt []string
+	for _, o := range objs {
+		if o.Kind != "Certificate" {
+			continue
+		}
+		ref, _ := o.Spec["issuerRef"].(map[string]any)
+		kind, name := str(ref["kind"]), str(ref["name"])
+		if kind == "Issuer" {
+			used[name] = true
+		}
+		if ref := kind + "/" + name; kind != "" && name != "" && !slices.Contains(pointsAt, ref) {
+			pointsAt = append(pointsAt, ref)
+		}
+	}
+	if len(pointsAt) == 0 {
+		return nil
+	}
+	var out []hit
+	for _, o := range objs {
+		if o.Kind != "Issuer" || used[o.Name] {
+			continue
+		}
+		out = append(out, hit{
+			Where: "Issuer/" + o.Name,
+			Message: fmt.Sprintf(
+				"nothing in this chart uses this Issuer — its Certificate names %s instead, which the chart does not provide. Point certificate.issuerRef at it, or drop one of the two",
+				strings.Join(pointsAt, ", ")),
+		})
+	}
+	return out
+}
+
+// serviceTargetPortRule catches a Service forwarding to a port name no
+// container declares.
+//
+// A named targetPort is the right way to write a Service — it survives the
+// container port moving — and it is silent when it is wrong. The endpoints
+// exist, the name resolves to nothing, and every connection is refused with
+// nothing anywhere reporting a failure. "hck add service" against a DaemonSet
+// or CronJob chart produces it: neither of those templates declares a
+// container port at all.
+//
+// The names are collected across every pod spec the chart renders rather than
+// matched against the Service selector. A chart carries one workload, and
+// being quiet when unsure is the right way for a warning to be wrong — a
+// chart that renders no pod at all has a Service for somebody else's pods,
+// and this says nothing about it.
+func serviceTargetPortRule(objs []object) []hit {
+	declared := map[string]bool{}
+	pods := 0
+	for _, o := range objs {
+		spec, ok := podSpecOf(o)
+		if !ok {
+			continue
+		}
+		pods++
+		containers, _ := spec["containers"].([]any)
+		for _, ci := range containers {
+			c, ok := ci.(map[string]any)
+			if !ok {
+				continue
+			}
+			ports, _ := c["ports"].([]any)
+			for _, pi := range ports {
+				p, ok := pi.(map[string]any)
+				if !ok {
+					continue
+				}
+				if name := str(p["name"]); name != "" {
+					declared[name] = true
+				}
+			}
+		}
+	}
+	if pods == 0 {
+		return nil
+	}
+
+	var out []hit
+	for _, o := range objs {
+		if o.Kind != "Service" {
+			continue
+		}
+		// No selector means the Service does not choose its own endpoints.
+		if sel, _ := o.Spec["selector"].(map[string]any); len(sel) == 0 {
+			continue
+		}
+		ports, _ := o.Spec["ports"].([]any)
+		for _, pi := range ports {
+			p, ok := pi.(map[string]any)
+			if !ok {
+				continue
+			}
+			// Only a named targetPort can dangle. A number is forwarded
+			// whether or not anything is listening on it.
+			target := str(p["targetPort"])
+			if target == "" || declared[target] {
+				continue
+			}
+			out = append(out, hit{
+				Where: "Service/" + o.Name,
+				Message: fmt.Sprintf(
+					"port %q forwards to a container port named %q, which no container in this chart declares. The endpoints exist and the name resolves to nothing, so every connection is refused without anything reporting a failure",
+					str(p["name"]), target),
+			})
+		}
+	}
+	return out
 }
 
 // scaleTargetField is where each controller names the workload it sizes.

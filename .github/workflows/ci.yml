@@ -405,7 +405,7 @@ jobs:
 
       # A scaler added beside a StatefulSet has to name the StatefulSet. It did
       # not, and nothing said so: the HPA rendered, installed, and never scaled.
-      - name: Scalers point at the chart's own workload
+      - name: References by name that nothing validates
         run: |
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
@@ -442,6 +442,21 @@ jobs:
           report=$(hck check --chart "$workdir/demo" -f "$workdir/on.yaml")
           [[ "$report" == *"HCK033"* ]] || { echo "FAIL: a scaler left behind by remove was not reported"; exit 1; }
           echo "PASS: scale targets"
+
+          # Two more references by name that nothing validates: the issuer a
+          # Certificate points at, and the container port a Service forwards
+          # to. Both are produced by ordinary "hck add" combinations.
+          hck new certs --dir "$workdir" --preset web >/dev/null
+          hck add certificate issuer --chart "$workdir/certs" >/dev/null
+          printf 'image:\n  tag: "1.0.0"\ncertificate: {enabled: true}\nissuer: {enabled: true, kind: selfSigned}\n' > "$workdir/certs-on.yaml"
+          report=$(hck check --chart "$workdir/certs" -f "$workdir/certs-on.yaml")
+          [[ "$report" == *"HCK034"* ]] || { echo "FAIL: an Issuer nothing uses was not reported"; exit 1; }
+
+          hck new agent --dir "$workdir" --preset daemon >/dev/null
+          hck add service --chart "$workdir/agent" >/dev/null
+          report=$(hck check --chart "$workdir/agent")
+          [[ "$report" == *"HCK035"* ]] || { echo "FAIL: a Service forwarding to nothing was not reported"; exit 1; }
+          echo "PASS: dangling references"
 
       # init has to produce exactly what the command it prints would produce.
       - name: Scaffold interactively
