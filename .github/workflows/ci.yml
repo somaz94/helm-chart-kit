@@ -309,9 +309,22 @@ jobs:
             grep 'HCK0' /tmp/all.log
             exit 1
           fi
-          for f in $(hck list resources | awk '/^  [a-z]/ {print $1}'); do
-            case "$f" in statefulset|daemonset|cronjob) continue ;; esac
-          done
+          # Assert each resource actually appears. The point of the step is
+          # that "no findings" over a chart rendering nothing proves nothing,
+          # so this has to check the render, not just iterate over names.
+          #
+          # Unique source files, not documents: rbac.yaml alone emits a Role
+          # and a RoleBinding, so counting "# Source:" lines overcounts.
+          hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml --print > /tmp/all.yaml
+          want=$(hck list resources | awk '/^  [a-z]/ {print $1}' \
+            | grep -vcE '^(statefulset|daemonset|cronjob)$')
+          got=$(grep '^# Source: all/templates/' /tmp/all.yaml | sort -u | wc -l | tr -d ' ')
+          echo "  catalog expects $want resources, render carries $got"
+          if [ "$got" -ne "$want" ]; then
+            echo "FAIL: the render does not cover the catalog"
+            grep '^# Source:' /tmp/all.yaml | sort -u
+            exit 1
+          fi
           echo "PASS: every resource renders"
 
       # The two overlay axes must not both claim a key: they are both -f

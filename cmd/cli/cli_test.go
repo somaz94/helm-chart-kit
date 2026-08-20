@@ -1193,3 +1193,67 @@ func TestEveryResourceRendersWhenEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvAddDryRun(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+
+	out := mustRun(t, "env", "add", "prod", "--chart", dir, "--dry-run")
+	if !strings.Contains(out, "values-prod.yaml") {
+		t.Errorf("got %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "values-prod.yaml")); err == nil {
+		t.Error("--dry-run wrote the file")
+	}
+}
+
+func TestEnvAddOutsideAChart(t *testing.T) {
+	if _, err := run(t, "env", "add", "prod", "--chart", t.TempDir()); err == nil {
+		t.Error("want an error when there is no Chart.yaml")
+	}
+}
+
+func TestCheckRejectsAnUnknownEnv(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	if _, err := run(t, "check", "--chart", filepath.Join(parent, "demo"), "--env", "nope"); err == nil {
+		t.Error("want an error for an unknown environment")
+	}
+}
+
+// The platform side has this; the environment side did not.
+func TestCheckAppliesTheEnvOverlay(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	for _, env := range catalog.EnvironmentNames() {
+		t.Run(env, func(t *testing.T) {
+			parent := t.TempDir()
+			mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--env", env, "--schema")
+			dir := filepath.Join(parent, "demo")
+
+			out := mustRun(t, "check", "--chart", dir, "--env", env, "--strict")
+			if !strings.Contains(out, "no findings") {
+				t.Fatalf("chart does not pass its own check at %s:\n%s", env, out)
+			}
+			if !strings.Contains(out, "("+env+")") {
+				t.Errorf("report does not name the overlay:\n%s", out)
+			}
+		})
+	}
+}
+
+// Naming nothing but separators is not naming a platform.
+func TestOverlayAddRejectsAnEmptyList(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+	for _, axis := range []string{"platform", "env"} {
+		t.Run(axis, func(t *testing.T) {
+			if _, err := run(t, axis, "add", ",", "--chart", dir); err == nil {
+				t.Error("want an error; the command exited 0 having done nothing")
+			}
+		})
+	}
+}

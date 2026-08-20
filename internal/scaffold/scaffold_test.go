@@ -814,3 +814,127 @@ func TestChartPlatforms(t *testing.T) {
 		t.Errorf("got %v, want just aws", got)
 	}
 }
+
+func TestBuildEnvironmentValues(t *testing.T) {
+	c := newChart(t, "web")
+	resources, err := ChartResources(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod, _ := catalog.LookupEnvironment("prod")
+
+	out, ok, err := BuildEnvironmentValues(DataFor(c), resources, prod)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	body := string(out)
+
+	// The header has to carry the ordering hint. Overlays apply left to
+	// right, so an environment passed before a platform loses to it — and
+	// nothing else in the suite pins which way round the two go.
+	if !strings.Contains(body, "[-f values-<platform>.yaml] -f values-prod.yaml") {
+		t.Errorf("the install line does not put the environment last:\n%s", firstLines(body, 12))
+	}
+	// An environment is a size, not a prerequisite; it has nothing to demand
+	// of the cluster the way a platform does.
+	if strings.Contains(body, "Expects the cluster to already have") {
+		t.Error("an environment overlay claimed a cluster prerequisite")
+	}
+	for _, want := range []string{"replicaCount: 3", "podDisruptionBudget", "autoscaling"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overlay is missing %q", want)
+		}
+	}
+	if _, err := values.TopLevelKeys(out); err != nil {
+		t.Fatalf("overlay is not valid YAML: %v", err)
+	}
+}
+
+func TestBuildEnvironmentValuesEmptyWhenNothingDiffers(t *testing.T) {
+	dev, _ := catalog.LookupEnvironment("dev")
+	sa, _ := catalog.LookupResource("serviceaccount")
+	_, ok, err := BuildEnvironmentValues(DataFor(newChart(t, "web")), []catalog.Resource{sa}, dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("wrote an overlay for a chart with nothing size-dependent in it")
+	}
+}
+
+func TestPlanNewWritesEnvironmentOverlays(t *testing.T) {
+	parent := t.TempDir()
+	plan, err := PlanNew(NewOptions{
+		Parent: parent, Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "web",
+		Environments: []string{"dev", "prod"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"values-dev.yaml", "values-prod.yaml"} {
+		if _, err := os.Stat(filepath.Join(plan.ChartDir, name)); err != nil {
+			t.Errorf("%s was not written: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(plan.ChartDir, "values-staging.yaml")); err == nil {
+		t.Error("wrote an overlay that was not asked for")
+	}
+
+	if _, err := PlanNew(NewOptions{
+		Parent: t.TempDir(), Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "web",
+		Environments: []string{"nope"},
+	}); err == nil {
+		t.Error("want an error for an unknown environment")
+	}
+}
+
+func TestChartEnvironments(t *testing.T) {
+	c := newChart(t, "web")
+	if got := ChartEnvironments(c); len(got) != 0 {
+		t.Errorf("a fresh chart reports %v", got)
+	}
+	prod, _ := catalog.LookupEnvironment("prod")
+	if err := os.WriteFile(filepath.Join(c.Dir, prod.ValuesFile()), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := ChartEnvironments(c)
+	if len(got) != 1 || got[0].Name != "prod" {
+		t.Errorf("got %v, want just prod", got)
+	}
+}
+
+// --with can name a workload the preset does not satisfy the requirements of.
+// "hck add" has always said so; "hck new" used to say nothing.
+func TestPlanNewReportsUnmetRequirements(t *testing.T) {
+	plan, err := PlanNew(NewOptions{
+		Parent: t.TempDir(), Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "cronjob",
+		Extra: []string{"referencegrant"}, // Requires: service
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noted bool
+	for _, n := range plan.Notes {
+		if strings.Contains(n, "referencegrant expects service") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("plan does not report the unmet requirement: %v", plan.Notes)
+	}
+}
+
+// firstLines trims long output for a failure message.
+func firstLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
+}
