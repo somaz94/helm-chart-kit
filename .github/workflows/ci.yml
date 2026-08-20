@@ -458,6 +458,17 @@ jobs:
           [[ "$report" == *"HCK035"* ]] || { echo "FAIL: a Service forwarding to nothing was not reported"; exit 1; }
           echo "PASS: dangling references"
 
+          # A budget that allows nothing applies cleanly and wedges the next
+          # node drain. hck's own defaults must stay out of it.
+          hck new budget --dir "$workdir" --preset web >/dev/null
+          printf 'image:\n  tag: "1.0.0"\nreplicaCount: 3\npodDisruptionBudget: {enabled: true}\n' > "$workdir/pdb-ok.yaml"
+          hck check --chart "$workdir/budget" -f "$workdir/pdb-ok.yaml" --strict >/dev/null
+
+          printf 'image:\n  tag: "1.0.0"\nreplicaCount: 1\npodDisruptionBudget: {enabled: true, minAvailable: 1}\n' > "$workdir/pdb-wedge.yaml"
+          report=$(hck check --chart "$workdir/budget" -f "$workdir/pdb-wedge.yaml")
+          [[ "$report" == *"HCK036"* ]] || { echo "FAIL: a budget that blocks every drain was not reported"; exit 1; }
+          echo "PASS: disruption budgets"
+
       # init has to produce exactly what the command it prints would produce.
       - name: Scaffold interactively
         run: |

@@ -683,3 +683,93 @@ func TestServiceTargetPortRuleIgnoresMalformedInput(t *testing.T) {
 		t.Error("a port nothing declares was not reported")
 	}
 }
+
+func budget(spec map[string]any) object {
+	return object{Kind: "PodDisruptionBudget", Name: "app", Spec: spec}
+}
+
+func workloadWithReplicas(kind string, replicas any) object {
+	spec := map[string]any{"template": map[string]any{"spec": map[string]any{}}}
+	if replicas != nil {
+		spec["replicas"] = replicas
+	}
+	return object{Kind: kind, Name: "app", Spec: spec}
+}
+
+// A budget that allows nothing applies cleanly and works, right up until
+// somebody drains a node. Both values files hck writes warn about it in a
+// comment, and a comment does not run.
+func TestWedgedBudgetIsReported(t *testing.T) {
+	deploy3 := workloadWithReplicas("Deployment", 3)
+
+	t.Run("hck's own default is quiet", func(t *testing.T) {
+		objs := []object{deploy3, budget(map[string]any{"maxUnavailable": 1})}
+		if got := findRule(setRules(objs), "HCK036"); got != nil {
+			t.Errorf("fired on maxUnavailable: 1 over 3 replicas: %v", got)
+		}
+	})
+	t.Run("minAvailable below the replica count is fine", func(t *testing.T) {
+		objs := []object{deploy3, budget(map[string]any{"minAvailable": 2})}
+		if got := findRule(setRules(objs), "HCK036"); got != nil {
+			t.Errorf("fired on minAvailable: 2 over 3 replicas: %v", got)
+		}
+	})
+	t.Run("maxUnavailable zero", func(t *testing.T) {
+		for _, zero := range []any{0, "0%"} {
+			objs := []object{deploy3, budget(map[string]any{"maxUnavailable": zero})}
+			got := findRule(setRules(objs), "HCK036")
+			if got == nil {
+				t.Fatalf("maxUnavailable %v was not reported", zero)
+			}
+			// Telling someone to use maxUnavailable when maxUnavailable is
+			// the problem would be worse than saying nothing.
+			if strings.Contains(got.Message, "Use maxUnavailable") {
+				t.Errorf("the remedy contradicts the cause: %q", got.Message)
+			}
+		}
+	})
+	t.Run("minAvailable at or above the replica count", func(t *testing.T) {
+		for _, tc := range []struct {
+			replicas, min int
+		}{{1, 1}, {3, 3}, {3, 5}} {
+			objs := []object{workloadWithReplicas("Deployment", tc.replicas), budget(map[string]any{"minAvailable": tc.min})}
+			if got := findRule(setRules(objs), "HCK036"); got == nil {
+				t.Errorf("minAvailable %d over %d replicas was not reported", tc.min, tc.replicas)
+			}
+		}
+	})
+	t.Run("minAvailable 100 percent", func(t *testing.T) {
+		objs := []object{deploy3, budget(map[string]any{"minAvailable": "100%"})}
+		if got := findRule(setRules(objs), "HCK036"); got == nil {
+			t.Error(`minAvailable "100%" was not reported`)
+		}
+		// A percentage that leaves room is not a wedge.
+		objs = []object{deploy3, budget(map[string]any{"minAvailable": "50%"})}
+		if got := findRule(setRules(objs), "HCK036"); got != nil {
+			t.Errorf(`fired on minAvailable "50%%": %v`, got)
+		}
+	})
+	t.Run("quiet when the replica count is not knowable", func(t *testing.T) {
+		// A Deployment under an HPA leaves replicas out so the autoscaler owns
+		// it, and a DaemonSet has no such field at all.
+		for _, w := range []object{
+			workloadWithReplicas("Deployment", nil),
+			workloadWithReplicas("DaemonSet", nil),
+		} {
+			objs := []object{w, budget(map[string]any{"minAvailable": 1})}
+			if got := findRule(setRules(objs), "HCK036"); got != nil {
+				t.Errorf("fired without knowing the replica count (%s): %v", w.Kind, got)
+			}
+		}
+		// And a chart with no workload at all says nothing.
+		if got := findRule(setRules([]object{budget(map[string]any{"minAvailable": 1})}), "HCK036"); got != nil {
+			t.Errorf("fired on a chart with no workload: %v", got)
+		}
+	})
+	t.Run("a budget over zero replicas is not a wedge", func(t *testing.T) {
+		objs := []object{workloadWithReplicas("Deployment", 0), budget(map[string]any{"minAvailable": 0})}
+		if got := findRule(setRules(objs), "HCK036"); got != nil {
+			t.Errorf("fired on a workload scaled to zero: %v", got)
+		}
+	})
+}

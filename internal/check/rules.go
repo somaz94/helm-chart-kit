@@ -272,6 +272,97 @@ var rules = []Rule{
 		Summary: "a Service forwards to a container port name nothing declares",
 		set:     serviceTargetPortRule,
 	},
+	{
+		ID: "HCK036", Severity: Warn, Scope: SetScope,
+		Summary: "a PodDisruptionBudget never allows a voluntary disruption",
+		set:     wedgedBudgetRule,
+	},
+}
+
+// wedgedBudgetRule catches a PodDisruptionBudget that allows nothing to be
+// evicted, ever.
+//
+// It applies cleanly and it works, right up until somebody drains a node: the
+// eviction API refuses every request, kubectl drain retries until it is
+// cancelled, and a rolling cluster upgrade stops on this one pod. The chart is
+// fine and the cluster is what breaks, months later, in somebody else's hands.
+//
+// Both of the values files hck writes already say this — the pdb fragment
+// warns about a budget over one replica, and the dev overlay turns the budget
+// off for the same reason — and a comment does not run.
+func wedgedBudgetRule(objs []object) []hit {
+	replicas, known := soleWorkloadReplicas(objs)
+	var out []hit
+	for _, o := range objs {
+		if o.Kind != "PodDisruptionBudget" {
+			continue
+		}
+		// The remedy differs per cause, and telling someone to use
+		// maxUnavailable when maxUnavailable is the problem is worse than
+		// saying nothing.
+		const useMaxUnavailable = "Use maxUnavailable, which keeps working when the replica count moves, or raise the replica count"
+		var why, fix string
+		switch min, isInt := asCount(o.Spec["minAvailable"]); {
+		case isZero(o.Spec["maxUnavailable"]):
+			why, fix = fmt.Sprintf("maxUnavailable is %v", o.Spec["maxUnavailable"]),
+				"Allow at least one, or drop the budget"
+		case str(o.Spec["minAvailable"]) == "100%":
+			why, fix = `minAvailable is "100%"`, useMaxUnavailable
+		case isInt && known && replicas > 0 && min >= replicas:
+			why, fix = fmt.Sprintf("minAvailable is %d and the workload runs %d", min, replicas), useMaxUnavailable
+		default:
+			continue
+		}
+		out = append(out, hit{
+			Where:   "PodDisruptionBudget/" + o.Name,
+			Message: why + ", so no voluntary disruption is ever allowed: a node drain retries until somebody cancels it, and a rolling cluster upgrade stops on this pod. " + fix,
+		})
+	}
+	return out
+}
+
+// soleWorkloadReplicas is the replica count of the one workload the chart
+// renders, when it declares one.
+//
+// A Deployment under an HPA does not — the template leaves replicas out so the
+// autoscaler owns the number — and a DaemonSet has no such field at all. Both
+// are reported as unknown, and minAvailable is then left alone: being quiet
+// when unsure is the right way for a warning to be wrong.
+func soleWorkloadReplicas(objs []object) (int, bool) {
+	found, n := 0, 0
+	for _, o := range objs {
+		if !workloadKinds[o.Kind] {
+			continue
+		}
+		if r, ok := asCount(o.Spec["replicas"]); ok {
+			found++
+			n = r
+		}
+	}
+	if found != 1 {
+		return 0, false
+	}
+	return n, true
+}
+
+// asCount reads a YAML scalar that should be a number of pods.
+func asCount(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case float64:
+		return int(n), true
+	}
+	return 0, false
+}
+
+// isZero reports whether a budget field allows nothing, written either way
+// round: 0 and "0%" mean the same thing to the eviction API.
+func isZero(v any) bool {
+	if n, ok := asCount(v); ok {
+		return n == 0
+	}
+	return str(v) == "0%"
 }
 
 // unusedIssuerRule catches a chart that creates an Issuer and then does not
