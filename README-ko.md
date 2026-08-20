@@ -87,49 +87,60 @@ go install github.com/somaz94/helm-chart-kit/cmd@latest
 
 ## 빠른 시작
 
-```bash
-# 어떤 플래그가 필요한지 모르겠다면, 질문에 답하는 쪽으로.
-hck init payments-api
+대부분은 명령 셋으로 끝납니다:
 
-# 차트 만들기
-hck new payments-api                       # web preset: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
+```bash
+hck new payments-api      # 차트 만들기
+hck add servicemonitor    # 있는 차트에 추가
+hck check                 # 렌더하고 자체 규칙 적용
+```
+
+어떤 플래그가 필요한지 모르겠다면 `hck init`이 대신 물어보고, 끝나면 같은
+결과를 내는 명령을 알려줍니다:
+
+```bash
+hck init payments-api
+```
+
+아래는 전부 opt-in입니다. JSON Schema도, 값 표도, 플랫폼 오버레이도 요청하지
+않은 차트에는 생기지 않습니다 — 위의 세 명령으로 충분하다면 그걸로 끝입니다.
+
+<details>
+<summary>나머지 기능 한눈에 보기</summary>
+
+```bash
+# preset 이 새 차트의 출발점을 정합니다
 hck new billing-worker --preset worker     # Service 없음, ingress 경로 없음
 hck new sessions --preset stateful         # 레플리카별 볼륨을 가진 StatefulSet
-hck new nightly-sync --preset cronjob
-hck new log-shipper --preset daemon        # 모든 노드에 DaemonSet, Service 없음
+hck new log-shipper --preset daemon        # 모든 노드에 DaemonSet
 
-# 이미 있는 차트에 추가
-hck add servicemonitor
+# 여러 개를 한 번에, 또는 먼저 무슨 일이 일어날지 보기
 hck add pdb networkpolicy
 hck add httproute --dry-run
 
-# 렌더하고 자체 규칙 적용
-hck check
+# 실제 values 로 검사하거나, 경고도 실패로 취급
 hck check -f values/prod.yaml --strict
 
 # 플랫폼 오버레이: EKS / GKE / AKS / 자체 운영에서 달라지는 것만
-hck new payments-api --platform aws   # values-aws.yaml과 함께 생성
-hck platform add gcp azure            # 기존 차트에 추가
-hck check --platform aws              # 거기에 설치된 상태로 검사
+hck new payments-api --platform aws
+hck platform add gcp azure
+hck check --platform aws                   # 거기에 설치된 상태로 검사
 
 # 환경 오버레이: 얼마나 세게 돌릴 것인가
-hck new payments-api --env dev,prod   # values-dev.yaml, values-prod.yaml 생성
-hck env add staging                   # 기존 차트에 추가
-hck check --platform aws --env prod   # 두 축 동시에
+hck new payments-api --env dev,prod
+hck env add staging
+hck check --platform aws --env prod        # 두 축 동시에
 
-# 값을 Markdown 표로 문서화
-hck docs                              # 출력
-hck docs --write                      # 차트 README에 기록
-hck docs --check                      # CI 게이트: 아직 최신인가?
-
-# 값을 JSON Schema로 기술
-hck new payments-api --schema         # values.schema.json과 함께 생성
-hck schema --write                    # 기존 차트에 추가
-hck schema --check                    # CI 게이트: 아직 최신인가?
+# 값을 JSON Schema 로 기술하거나 표로 문서화
+hck schema --write
+hck docs --write
+hck schema --check && hck docs --check     # CI 게이트
 
 # 무엇이 있는지 둘러보기
 hck list
 ```
+
+</details>
 
 <br/>
 

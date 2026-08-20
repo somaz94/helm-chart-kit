@@ -87,49 +87,61 @@ go install github.com/somaz94/helm-chart-kit/cmd@latest
 
 ## Quick start
 
-```bash
-# Not sure which flags you want? Answer a few questions instead.
-hck init payments-api
+Three commands cover most of it:
 
-# Scaffold a chart
-hck new payments-api                       # web preset: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
+```bash
+hck new payments-api      # create a chart
+hck add servicemonitor    # add to one that exists
+hck check                 # render it and apply the house rules
+```
+
+Not sure which flags you want? `hck init` asks instead, and prints the
+equivalent command when it is done:
+
+```bash
+hck init payments-api
+```
+
+Everything below is opt-in. A chart that never asks for a JSON Schema, a
+values table or a platform overlay does not get one — so if the three commands
+above are all you need, you are done.
+
+<details>
+<summary>The rest of the surface, at a glance</summary>
+
+```bash
+# Presets decide what a new chart starts with
 hck new billing-worker --preset worker     # no Service, no ingress path
 hck new sessions --preset stateful         # StatefulSet with per-replica volumes
-hck new nightly-sync --preset cronjob
-hck new log-shipper --preset daemon        # DaemonSet on every node, no Service
+hck new log-shipper --preset daemon        # DaemonSet on every node
 
-# Add to a chart that already exists
-hck add servicemonitor
+# Add several at once, or see what would happen first
 hck add pdb networkpolicy
 hck add httproute --dry-run
 
-# Render it and apply the house rules
-hck check
+# Check against real values, or fail on warnings too
 hck check -f values/prod.yaml --strict
 
 # Platform overlays: only what differs on EKS / GKE / AKS / self-managed
-hck new payments-api --platform aws   # scaffold with values-aws.yaml
-hck platform add gcp azure            # add to an existing chart
-hck check --platform aws              # check it AS INSTALLED there
+hck new payments-api --platform aws
+hck platform add gcp azure
+hck check --platform aws                   # check it AS INSTALLED there
 
 # Environment overlays: how hard it is being asked to work
-hck new payments-api --env dev,prod   # scaffold with values-dev.yaml, values-prod.yaml
-hck env add staging                   # add to an existing chart
-hck check --platform aws --env prod   # both axes at once
+hck new payments-api --env dev,prod
+hck env add staging
+hck check --platform aws --env prod        # both axes at once
 
-# Document the values as a Markdown table
-hck docs                              # print it
-hck docs --write                      # write it into the chart's README
-hck docs --check                      # CI gate: is it still current?
-
-# Describe the values with a JSON Schema
-hck new payments-api --schema         # scaffold with values.schema.json
-hck schema --write                    # add one to a chart that already exists
-hck schema --check                    # CI gate: is it still current?
+# Describe the values with a JSON Schema, or document them as a table
+hck schema --write
+hck docs --write
+hck schema --check && hck docs --check     # CI gates
 
 # See what is available
 hck list
 ```
+
+</details>
 
 <br/>
 

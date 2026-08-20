@@ -1257,3 +1257,54 @@ func TestOverlayAddRejectsAnEmptyList(t *testing.T) {
 		})
 	}
 }
+
+// Twelve commands listed alphabetically tell a first-time reader nothing about
+// where to start. Every command has to sit in a group, or it falls into
+// cobra's "Additional Commands" bucket next to `completion` and is effectively
+// hidden.
+func TestEveryCommandIsGrouped(t *testing.T) {
+	root := NewRootCmd()
+
+	groups := map[string]bool{}
+	for _, g := range root.Groups() {
+		groups[g.ID] = true
+	}
+	if len(groups) == 0 {
+		t.Fatal("no command groups are declared")
+	}
+
+	for _, c := range root.Commands() {
+		// cobra adds these itself and groups them for us.
+		if c.Name() == "completion" || c.Name() == "help" {
+			continue
+		}
+		t.Run(c.Name(), func(t *testing.T) {
+			if c.GroupID == "" {
+				t.Error("has no group, so it lands under Additional Commands")
+			} else if !groups[c.GroupID] {
+				t.Errorf("group %q is not declared on the root", c.GroupID)
+			}
+		})
+	}
+}
+
+// The first thing anyone reads has to say where to start.
+func TestRootHelpPointsAtTheWayIn(t *testing.T) {
+	out := mustRun(t, "--help")
+	for _, want := range []string{
+		"hck init",         // the way in
+		"Getting started:", // the groups render
+		"Working on a chart:",
+		"opt-in", // nothing below is mandatory
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("root help is missing %q:\n%s", want, out)
+		}
+	}
+	// The three-command path has to be in there verbatim.
+	for _, want := range []string{"hck new <name>", "hck add <resource>", "hck check"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("root help does not show %q", want)
+		}
+	}
+}
