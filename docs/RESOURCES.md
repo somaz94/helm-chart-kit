@@ -47,7 +47,7 @@ Every preset carries exactly one workload. That is enforced by a test, not a con
 | `issuer` | `cert-manager.io/v1` | `issuer` | Namespaced. Prefer a ClusterIssuer when charts share an ACME account. |
 | `referencegrant` | `gateway.networking.k8s.io/v1beta1` | `referenceGrant` | Lets an HTTPRoute in another namespace reach this Service. |
 | `scaledjob` | `keda.sh/v1alpha1` | `scaledJob` | One Job per queue item, for bursty expensive work. |
-| `grafanadashboard` | `v1` | `grafanaDashboard` | ConfigMap the Grafana sidecar reads. Wrong label fails silently. |
+| `grafanadashboard` | `v1` | `grafanaDashboard` | ConfigMap the Grafana sidecar reads. Wrong label fails silently. `templated` is off: Grafana's own `{{ }}` legends are not Helm templates. |
 | `tests` | `v1` | `tests` | `helm test` hook that dials the Service. |
 
 <br/>

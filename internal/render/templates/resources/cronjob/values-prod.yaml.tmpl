@@ -1,7 +1,4 @@
 cronjob:
-  # -- Forbid, and a deadline. Without activeDeadlineSeconds a hung run under
-  # Forbid blocks every later one indefinitely.
-  concurrencyPolicy: Forbid
   activeDeadlineSeconds: 1800
   startingDeadlineSeconds: 120
   backoffLimit: 2

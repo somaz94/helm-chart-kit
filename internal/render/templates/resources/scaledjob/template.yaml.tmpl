@@ -17,26 +17,58 @@ spec:
       spec:
         serviceAccountName: {{ include "[[ .ChartName ]].serviceAccountName" . }}
         restartPolicy: Never
-        {{- with .Values.imagePullSecrets }}
+        {{- with (.Values.podSecurityContext) }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with (.Values.imagePullSecrets) }}
         imagePullSecrets:
           {{- toYaml . | nindent 10 }}
         {{- end }}
         containers:
           - name: {{ .Chart.Name }}
             image: {{ include "[[ .ChartName ]].image" . }}
-            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            imagePullPolicy: {{ (.Values.image).pullPolicy }}
             {{- with .Values.scaledJob.command }}
             command:
               {{- toYaml . | nindent 14 }}
             {{- end }}
-            {{- with .Values.env }}
+            {{- with (.Values.env) }}
             env:
               {{- toYaml . | nindent 14 }}
             {{- end }}
+            {{- with (.Values.envFrom) }}
+            envFrom:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with (.Values.volumeMounts) }}
+            volumeMounts:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with (.Values.resources) }}
             resources:
-              {{- toYaml .Values.resources | nindent 14 }}
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with (.Values.securityContext) }}
             securityContext:
-              {{- toYaml .Values.securityContext | nindent 14 }}
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+        {{- with (.Values.nodeSelector) }}
+        nodeSelector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with (.Values.tolerations) }}
+        tolerations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with (.Values.affinity) }}
+        affinity:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with (.Values.volumes) }}
+        volumes:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
   pollingInterval: {{ .Values.scaledJob.pollingInterval }}
   successfulJobsHistoryLimit: {{ .Values.scaledJob.successfulJobsHistoryLimit }}
   failedJobsHistoryLimit: {{ .Values.scaledJob.failedJobsHistoryLimit }}

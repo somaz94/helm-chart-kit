@@ -7,6 +7,7 @@
       "namespace": { "type": "string", "description": "Namespace to create it in. Empty uses the release namespace." },
       "sidecarLabel": { "type": "string", "minLength": 1, "description": "Label the sidecar selects on" },
       "sidecarLabelValue": { "type": "string", "description": "Value that label must have" },
+      "templated": { "type": "boolean", "description": "Run each body through tpl. Off by default: Grafana's own {{ }} legend syntax would be parsed as template actions." },
       "folderAnnotation": { "type": "string", "description": "Annotation naming the Grafana folder. Empty leaves it in the default." },
       "folder": { "type": "string", "description": "Folder to file the dashboards under" },
       "dashboards": {

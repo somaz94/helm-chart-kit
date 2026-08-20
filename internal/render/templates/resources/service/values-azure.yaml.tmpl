@@ -1,4 +1,6 @@
 service:
+  # -- The annotations below are only read for a LoadBalancer Service; on the
+  # default ClusterIP they are inert. Switch the type when you want the Azure load balancer.
   annotations:
     # -- Internal keeps the load balancer on the VNet. Remove for a public IP.
     service.beta.kubernetes.io/azure-load-balancer-internal: "true"

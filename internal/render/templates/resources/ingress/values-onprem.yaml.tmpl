@@ -2,10 +2,12 @@ ingress:
   # -- ingress-nginx, the usual self-managed choice
   className: nginx
   annotations:
-    # -- cert-manager issuer that answers the ACME challenge, or an internal CA
-    cert-manager.io/cluster-issuer: ""
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    # -- Raise it for endpoints that stream or take a long time to answer;
-    # the default 60s cuts them off mid-response.
-    nginx.ingress.kubernetes.io/proxy-body-size: 8m
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+    # -- Raise it for endpoints that stream or take a long time to answer; the
+    # default 60s cuts them off mid-response.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # -- cert-manager issuer that answers the challenge. Omitted rather than
+    # left empty: ingress-shim would look up a ClusterIssuer named "" and log
+    # a reconcile error while issuing nothing.
+    # cert-manager.io/cluster-issuer: internal-ca

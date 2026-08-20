@@ -5,6 +5,9 @@ topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: topology.kubernetes.io/zone
     whenUnsatisfiable: ScheduleAnyway
-    labelSelector:
-      matchLabels:
-        app.kubernetes.io/name: [[ .ChartName ]]
+    # matchLabelKeys rather than a literal selector: the pod labels come
+    # from nameOverride and the release name, so a baked-in name selects
+    # nothing the moment a consumer overrides it.
+    matchLabelKeys:
+      - app.kubernetes.io/name
+      - app.kubernetes.io/instance

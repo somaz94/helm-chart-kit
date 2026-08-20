@@ -403,6 +403,11 @@ func podSpecOf(o object) (map[string]any, bool) {
 		return nested(o.Spec, "template", "spec")
 	case "CronJob":
 		return nested(o.Spec, "jobTemplate", "spec", "template", "spec")
+	case "ScaledJob":
+		// KEDA carries a full Job spec inline. Without this case the house
+		// rules never reach it, and a pod spec nobody checks is where a
+		// missing securityContext lives.
+		return nested(o.Spec, "jobTargetRef", "template", "spec")
 	case "Pod":
 		return o.Spec, o.Spec != nil
 	default:

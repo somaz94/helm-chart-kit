@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -51,28 +53,7 @@ exactly as it was.`,
 			if err != nil {
 				return err
 			}
-			values, err := c.Values()
-			if err != nil {
-				return err
-			}
-			if len(bytes.TrimSpace(values)) == 0 {
-				return fmt.Errorf("%s has no values.yaml to document", c.Meta.Name)
-			}
-
-			// Prefer the schema the chart ships; fall back to one built from
-			// the resources it carries, so a chart that never opted into
-			// values.schema.json still gets types and allowed values.
-			schema, err := c.Schema()
-			if err != nil {
-				return err
-			}
-			if schema == nil {
-				if resources, err := scaffold.ChartResources(c); err == nil && len(resources) > 0 {
-					schema, _, _ = scaffold.BuildSchema(scaffold.DataFor(c), resources, false)
-				}
-			}
-
-			table, err := docs.Table(values, docs.Options{Schema: schema})
+			table, err := valuesTable(c)
 			if err != nil {
 				return err
 			}
@@ -97,16 +78,8 @@ exactly as it was.`,
 				return nil
 
 			case opts.write:
-				current, err := os.ReadFile(c.ReadmePath())
-				if err != nil {
-					current = []byte(docs.Skeleton(c.Meta.Name, c.Meta.Description))
-				}
-				next, err := docs.Replace(current, table)
-				if err != nil {
+				if err := writeValuesTable(c); err != nil {
 					return err
-				}
-				if err := os.WriteFile(c.ReadmePath(), next, 0o644); err != nil {
-					return fmt.Errorf("write README.md: %w", err)
 				}
 				fprintf(out, "%s %s\n\n", p.bold("wrote"), c.ReadmePath())
 				fprintf(out, "  %d value(s) documented\n", strings.Count(table, "\n")-2)
@@ -123,4 +96,62 @@ exactly as it was.`,
 	cmd.Flags().BoolVar(&opts.write, "write", false, "write the table into the chart's README.md")
 	cmd.Flags().BoolVar(&opts.check, "check", false, "fail when the README's table differs from what would be generated")
 	return cmd
+}
+
+// valuesTable renders a chart's values as Markdown.
+//
+// The schema the chart ships is preferred; a chart that never opted into
+// values.schema.json gets one assembled on the fly, so the Type and allowed
+// values columns are populated either way. Failures here are real — swallowing
+// them drops those columns with no explanation.
+func valuesTable(c *chart.Chart) (string, error) {
+	values, err := c.Values()
+	if err != nil {
+		return "", err
+	}
+	if len(bytes.TrimSpace(values)) == 0 {
+		return "", fmt.Errorf("%s has no values.yaml to document", c.Meta.Name)
+	}
+
+	schema, err := c.Schema()
+	if err != nil {
+		return "", err
+	}
+	if schema == nil {
+		resources, err := scaffold.ChartResources(c)
+		if err != nil {
+			return "", err
+		}
+		if len(resources) > 0 {
+			schema, _, err = scaffold.BuildSchema(scaffold.DataFor(c), resources, false)
+			if err != nil {
+				return "", err
+			}
+		}
+	}
+	return docs.Table(values, docs.Options{Schema: schema})
+}
+
+// writeValuesTable writes the table into the chart's README, replacing only
+// the block between the markers. A chart with no README gets one.
+func writeValuesTable(c *chart.Chart) error {
+	table, err := valuesTable(c)
+	if err != nil {
+		return err
+	}
+	current, err := os.ReadFile(c.ReadmePath())
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("read README.md: %w", err)
+		}
+		current = []byte(docs.Skeleton(c.Meta.Name, c.Meta.Description))
+	}
+	next, err := docs.Replace(current, table)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(c.ReadmePath(), next, 0o644); err != nil {
+		return fmt.Errorf("write README.md: %w", err)
+	}
+	return nil
 }

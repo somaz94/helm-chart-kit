@@ -6,10 +6,12 @@ ingress:
     # -- ip targets pods directly; instance targets the NodePort
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
-    # -- ACM certificate. Leave it out and the controller discovers one whose
-    # domain matches the host, which is convenient and occasionally surprising.
-    alb.ingress.kubernetes.io/certificate-arn: ""
     alb.ingress.kubernetes.io/healthcheck-path: /healthz
-    # -- Share one ALB across ingresses in this group, so each chart does not
-    # provision a load balancer of its own.
+    # -- ACM certificate. Omitted, so the controller discovers one whose domain
+    # matches the host — convenient, and occasionally surprising. Uncomment to
+    # pin it; an empty value here fails listener reconciliation outright.
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:...
+    # -- Share one ALB across charts by giving them the same group. Left as the
+    # chart name so nothing is shared by accident; set it to a constant — an
+    # environment name — when you actually want one load balancer for several.
     alb.ingress.kubernetes.io/group.name: [[ .ChartName ]]

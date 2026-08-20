@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/somaz94/helm-chart-kit/internal/render"
@@ -391,4 +392,46 @@ func TestLookupPlatformKnown(t *testing.T) {
 func overlaySuffixes() []string {
 	out := append([]string{}, PlatformNames()...)
 	return append(out, EnvironmentNames()...)
+}
+
+// A platform overlay describes wiring; an environment overlay decides what is
+// on. Both end up as -f arguments, so a key both axes set is resolved by
+// argument order rather than by intent — "aws says no NetworkPolicy, prod says
+// yes" rendered differently depending on which came last.
+func TestPlatformOverlaysDoNotToggle(t *testing.T) {
+	for _, r := range Resources() {
+		for _, p := range Platforms() {
+			if !render.HasOverlayValues(r.Name, p.Name) {
+				continue
+			}
+			t.Run(r.Name+"/"+p.Name, func(t *testing.T) {
+				raw, _, err := render.ResourceOverlayValues(r.Name, p.Name, testData())
+				if err != nil {
+					t.Fatal(err)
+				}
+				var doc map[string]any
+				if err := yaml.Unmarshal(raw, &doc); err != nil {
+					t.Fatal(err)
+				}
+				for _, path := range enabledPaths(doc, nil) {
+					t.Errorf("platform overlay sets %s; enabling belongs to the environment axis, and a prerequisite belongs in Needs", path)
+				}
+			})
+		}
+	}
+}
+
+// enabledPaths finds every "enabled" key at any depth.
+func enabledPaths(m map[string]any, prefix []string) []string {
+	var out []string
+	for k, v := range m {
+		here := append(append([]string{}, prefix...), k)
+		if k == "enabled" {
+			out = append(out, strings.Join(here, "."))
+		}
+		if child, ok := v.(map[string]any); ok {
+			out = append(out, enabledPaths(child, here)...)
+		}
+	}
+	return out
 }

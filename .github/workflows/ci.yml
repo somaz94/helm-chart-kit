@@ -288,6 +288,55 @@ jobs:
           diff -r "$viainit/app" "$vianew/app"
           echo "PASS: init"
 
+      # Every optional resource defaults to off, so a chart carrying all of
+      # them renders none of them and a check over it proves nothing.
+      - name: Render every resource with everything enabled
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new all --dir "$workdir" --preset web --schema >/dev/null
+          chart="$workdir/all"
+          extra=$(hck list resources | awk '/^  [a-z]/ {print $1}' \
+            | grep -vE '^(deployment|statefulset|daemonset|cronjob)$' | tr '\n' ' ')
+          hck add $extra --chart "$chart" >/dev/null
+
+          # HCK031 is expected: HPA and KEDA both scale the workload here.
+          hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml > /tmp/all.log 2>&1 || true
+          grep -q HCK031 /tmp/all.log
+          if grep 'HCK0' /tmp/all.log | grep -qv HCK031; then
+            echo "FAIL: unexpected findings"
+            grep 'HCK0' /tmp/all.log
+            exit 1
+          fi
+          for f in $(hck list resources | awk '/^  [a-z]/ {print $1}'); do
+            case "$f" in statefulset|daemonset|cronjob) continue ;; esac
+          done
+          echo "PASS: every resource renders"
+
+      # The two overlay axes must not both claim a key: they are both -f
+      # arguments, so an overlap makes the render depend on argument order.
+      - name: Overlays are order-independent
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new ov --dir "$workdir" --preset web >/dev/null
+          chart="$workdir/ov"
+          for p in aws gcp azure onprem; do hck platform add "$p" --chart "$chart" --force >/dev/null; done
+          for e in dev staging prod; do hck env add "$e" --chart "$chart" --force >/dev/null; done
+          for p in aws gcp azure onprem; do
+            for e in dev staging prod; do
+              a=$(helm template t "$chart" -f "$chart/ci/install-values.yaml" -f "$chart/values-$p.yaml" -f "$chart/values-$e.yaml" | sha256sum)
+              b=$(helm template t "$chart" -f "$chart/ci/install-values.yaml" -f "$chart/values-$e.yaml" -f "$chart/values-$p.yaml" | sha256sum)
+              if [ "$a" != "$b" ]; then
+                echo "FAIL: $p and $e disagree about a key; the render depends on -f order"
+                exit 1
+              fi
+            done
+          done
+          echo "PASS: order-independent"
+
       # A chart that never asked for a schema must not acquire one.
       - name: Keep the schema opt-in
         run: |

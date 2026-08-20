@@ -1,0 +1,34 @@
+image:
+  tag: "1.0.0"
+ingress: {enabled: true}
+autoscaling: {enabled: true}
+podDisruptionBudget: {enabled: true}
+networkPolicy: {enabled: true}
+configMap: {enabled: true, data: {"app.conf": "x = 1"}}
+secret: {enabled: true, stringData: {example: value}}
+persistence: {enabled: true}
+rbac: {create: true, rules: [{apiGroups: [""], resources: [pods], verbs: [get]}]}
+metrics: {serviceMonitor: {enabled: true}}
+prometheusRule: {enabled: true, rules: [{alert: X, expr: "up == 0"}]}
+externalSecret: {enabled: true}
+certificate: {enabled: true}
+podMonitor: {enabled: true}
+verticalPodAutoscaler: {enabled: true, updateMode: "Off"}
+httpRoute: {enabled: true}
+job: {enabled: true}
+tests: {enabled: true}
+# The key name is deliberately not a credential word: a fixture that reads
+# like a leaked password trains everyone to ignore the pre-publish scanner.
+sealedSecret:
+  enabled: true
+  encryptedData:
+    example: AgBy3i4OJSWK
+issuer: {enabled: true, kind: selfSigned}
+referenceGrant: {enabled: true, from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: routes}]}
+grafanaDashboard: {enabled: true, dashboards: {"overview.json": "{\"targets\":[{\"legendFormat\":\"{{pod}}\"}]}"}}
+scaledObject:
+  enabled: true
+  triggers: [{type: cron, metadata: {timezone: UTC, start: "0 6 * * *", end: "0 20 * * *", desiredReplicas: "5"}}]
+scaledJob:
+  enabled: true
+  triggers: [{type: cron, metadata: {timezone: UTC, start: "0 6 * * *", end: "0 20 * * *", desiredReplicas: "1"}}]

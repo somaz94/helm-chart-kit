@@ -1044,3 +1044,152 @@ func TestInitRejectsABadName(t *testing.T) {
 		t.Error("want an error for a name Helm would refuse")
 	}
 }
+
+// Every declared overlay has to change the rendered output of a chart that
+// carries every resource. An overlay that renders identically to the base is
+// either wired up wrong or says nothing — and the version of this feature that
+// forgot to pass OverlayFiles to helm passed every other test in this file.
+func TestEveryOverlayChangesTheRender(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "probe", "-d", parent, "--preset", "web", "--schema")
+	dir := filepath.Join(parent, "probe")
+
+	var extra []string
+	for _, r := range catalog.Resources() {
+		if !r.Workload {
+			extra = append(extra, r.Name)
+		}
+	}
+	mustRun(t, append([]string{"add", "--chart", dir}, extra...)...)
+
+	base := mustRun(t, "check", "--chart", dir, "--print")
+
+	for _, p := range catalog.Platforms() {
+		t.Run("platform/"+p.Name, func(t *testing.T) {
+			mustRun(t, "platform", "add", p.Name, "--chart", dir, "--force")
+			got := mustRun(t, "check", "--chart", dir, "--platform", p.Name, "--print")
+			if got == base {
+				t.Errorf("the %s overlay renders identically to the base", p.Name)
+			}
+		})
+	}
+	for _, e := range catalog.Environments() {
+		t.Run("env/"+e.Name, func(t *testing.T) {
+			mustRun(t, "env", "add", e.Name, "--chart", dir, "--force")
+			got := mustRun(t, "check", "--chart", dir, "--env", e.Name, "--print")
+			if got == base {
+				t.Errorf("the %s overlay renders identically to the base", e.Name)
+			}
+		})
+	}
+}
+
+// Platform and environment overlays both become -f arguments, so any key both
+// axes set is resolved by argument order. That is not a decision anybody made,
+// and it produced a chart whose NetworkPolicy existed or not depending on
+// which file came last. The axes must not overlap at all.
+func TestOverlayOrderDoesNotChangeTheRender(t *testing.T) {
+	helm, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "ov", "-d", parent, "--preset", "web")
+	dir := filepath.Join(parent, "ov")
+
+	var extra []string
+	for _, r := range catalog.Resources() {
+		if !r.Workload {
+			extra = append(extra, r.Name)
+		}
+	}
+	mustRun(t, append([]string{"add", "--chart", dir}, extra...)...)
+	for _, p := range catalog.Platforms() {
+		mustRun(t, "platform", "add", p.Name, "--chart", dir, "--force")
+	}
+	for _, e := range catalog.Environments() {
+		mustRun(t, "env", "add", e.Name, "--chart", dir, "--force")
+	}
+
+	render := func(files ...string) string {
+		t.Helper()
+		args := []string{"template", "t", dir, "-f", filepath.Join(dir, "ci", "install-values.yaml")}
+		for _, f := range files {
+			args = append(args, "-f", filepath.Join(dir, f))
+		}
+		out, err := exec.Command(helm, args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("helm template: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+
+	for _, p := range catalog.Platforms() {
+		for _, e := range catalog.Environments() {
+			t.Run(p.Name+"+"+e.Name, func(t *testing.T) {
+				if render(p.ValuesFile(), e.ValuesFile()) != render(e.ValuesFile(), p.ValuesFile()) {
+					t.Error("the two overlays disagree about a key, so the render depends on -f order")
+				}
+			})
+		}
+	}
+}
+
+// Every optional resource defaults to enabled: false, so a chart carrying all
+// of them renders none of them — and a check over that chart reports "no
+// findings" while proving nothing. Turn them all on and render for real.
+//
+// The dashboard body deliberately contains Grafana's own {{pod}} legend
+// syntax, which is what broke the first version of that template.
+func TestEveryResourceRendersWhenEnabled(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "all", "-d", parent, "--preset", "web", "--schema")
+	dir := filepath.Join(parent, "all")
+
+	var extra []string
+	for _, r := range catalog.Resources() {
+		if !r.Workload {
+			extra = append(extra, r.Name)
+		}
+	}
+	mustRun(t, append([]string{"add", "--chart", dir}, extra...)...)
+
+	values, err := filepath.Abs(filepath.Join("testdata", "enable-all.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := mustRun(t, "check", "--chart", dir, "-f", values, "--print")
+
+	// Turning on every scaler at once is itself a finding — HPA and KEDA both
+	// driving the replica count is what HCK031 is for — so that one is
+	// expected. Anything else means a resource renders something the house
+	// rules object to.
+	if !strings.Contains(out, "HCK031") {
+		t.Error("HPA and a KEDA ScaledObject are both enabled; HCK031 should have fired")
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "HCK0") || strings.Contains(line, "HCK031") {
+			continue
+		}
+		t.Errorf("unexpected finding: %s", strings.TrimSpace(line))
+	}
+
+	// Every resource the catalog knows has to appear in the output. This is
+	// the assertion the previous suite was missing entirely.
+	for _, r := range catalog.Resources() {
+		if r.Workload && r.Name != "deployment" {
+			continue // one workload per chart
+		}
+		t.Run(r.Name, func(t *testing.T) {
+			if !strings.Contains(out, "# Source: all/templates/"+r.File) {
+				t.Errorf("%s rendered nothing", r.Name)
+			}
+		})
+	}
+}

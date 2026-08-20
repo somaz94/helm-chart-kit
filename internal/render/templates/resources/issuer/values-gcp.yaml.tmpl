@@ -4,4 +4,6 @@ issuer:
     solvers:
       - dns01:
           cloudDNS:
-            project: PROJECT_ID
+            # -- Cloud DNS project. Fill this in; cert-manager will call
+            # the API with whatever is here.
+            project: ""

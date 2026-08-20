@@ -9,8 +9,6 @@
 # label below. Getting the label wrong is silent: the ConfigMap is created and
 # simply never read.
 #
-# Bodies are run through `tpl`, so a dashboard can scope its queries to this
-# release rather than matching every copy in the cluster.
 # =============================================================================
 grafanaDashboard:
   # -- Create the ConfigMap
@@ -22,7 +20,16 @@ grafanaDashboard:
   sidecarLabel: grafana_dashboard
   # -- Value that label must have
   sidecarLabelValue: "1"
+  # -- Run each body through `tpl`, so a dashboard can scope its queries to
+  # this release. Off by default: Grafana's own JSON uses {{ }} for series
+  # legends — "legendFormat": "{{pod}}" is in almost every dashboard that
+  # graphs per-pod — and Go would try to call those as functions. Turning
+  # this on means escaping them as {{ "{{" }}pod{{ "}}" }}.
+  templated: false
   # -- Annotation naming the Grafana folder. Empty leaves it in the default.
+  # Note this is the value kiwigrid's k8s-sidecar reads only when Grafana was
+  # deployed with sidecar.dashboards.folderAnnotation set to match; its own
+  # default is k8s-sidecar-target-directory.
   folderAnnotation: grafana_folder
   # -- Folder to file the dashboards under
   folder: Applications

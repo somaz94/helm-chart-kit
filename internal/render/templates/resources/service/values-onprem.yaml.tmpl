@@ -5,4 +5,5 @@ service:
   annotations:
     # -- Pool to allocate from. Named pools keep production and staging off
     # the same range.
-    metallb.universe.tf/address-pool: default
+    # metallb.universe.tf/... is the pre-0.14 spelling and still honoured.
+    metallb.io/address-pool: default

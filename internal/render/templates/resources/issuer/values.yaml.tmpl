@@ -14,9 +14,10 @@ issuer:
   # -- acme, ca or selfSigned
   kind: selfSigned
   acme:
-    # -- Directory endpoint. Point it at the staging URL until the challenge
-    # works — the production endpoint rate-limits failures hard.
-    server: https://acme-v02.api.letsencrypt.org/directory
+    # -- Directory endpoint. Staging by default, because the production one
+    # rate-limits failures hard and a challenge rarely works first try. Switch
+    # to https://acme-v02.api.letsencrypt.org/directory once it does.
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
     # -- Contact address for expiry notices
     email: ""
     # -- Challenge solvers

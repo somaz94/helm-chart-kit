@@ -1,4 +1,5 @@
 persistence:
   # -- gp3 rather than gp2: same durability, cheaper, and IOPS and throughput
-  # are set independently of size.
+  # are set independently of size. Unlike GKE and AKS, EKS ships no gp3 class —
+  # create one against the EBS CSI driver, or the claim stays Pending.
   storageClass: gp3

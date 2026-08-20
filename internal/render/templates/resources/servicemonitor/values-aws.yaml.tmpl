@@ -1,6 +1,8 @@
 metrics:
   serviceMonitor:
-    # -- Label the Amazon Managed Service for Prometheus scraper selects on.
-    # A self-managed kube-prometheus-stack usually wants release: kube-prometheus-stack.
+    # -- Label the in-cluster Prometheus Operator selects on. Amazon Managed
+    # Service for Prometheus does not read ServiceMonitors at all — it is a
+    # remote-write endpoint, and the AWS managed collector has its own scrape
+    # config. Match this to your operator's release name.
     additionalLabels:
       release: prometheus

@@ -16,6 +16,10 @@ metadata:
 data:
   {{- range $name, $body := .Values.grafanaDashboard.dashboards }}
   {{ $name }}: |
+    {{- if $.Values.grafanaDashboard.templated }}
     {{- tpl $body $ | nindent 4 }}
+    {{- else }}
+    {{- $body | nindent 4 }}
+    {{- end }}
   {{- end }}
 {{- end }}

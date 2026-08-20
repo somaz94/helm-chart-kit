@@ -376,3 +376,33 @@ func TestVPAUpdateModeHandlesAMalformedSpec(t *testing.T) {
 		})
 	}
 }
+
+// A pod spec the rules cannot reach is a pod spec nobody checks. KEDA's
+// ScaledJob carries one inline, three levels down.
+func TestPodSpecOfReachesEveryInlinePodSpec(t *testing.T) {
+	spec := map[string]any{"containers": []any{map[string]any{"name": "app"}}}
+	for name, o := range map[string]object{
+		"Deployment":  {Kind: "Deployment", Spec: map[string]any{"template": map[string]any{"spec": spec}}},
+		"StatefulSet": {Kind: "StatefulSet", Spec: map[string]any{"template": map[string]any{"spec": spec}}},
+		"DaemonSet":   {Kind: "DaemonSet", Spec: map[string]any{"template": map[string]any{"spec": spec}}},
+		"Job":         {Kind: "Job", Spec: map[string]any{"template": map[string]any{"spec": spec}}},
+		"Pod":         {Kind: "Pod", Spec: spec},
+		"CronJob": {Kind: "CronJob", Spec: map[string]any{
+			"jobTemplate": map[string]any{"spec": map[string]any{"template": map[string]any{"spec": spec}}}}},
+		"ScaledJob": {Kind: "ScaledJob", Spec: map[string]any{
+			"jobTargetRef": map[string]any{"template": map[string]any{"spec": spec}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, ok := podSpecOf(o)
+			if !ok {
+				t.Fatal("no pod spec found")
+			}
+			if _, ok := got["containers"]; !ok {
+				t.Errorf("found the wrong map: %v", got)
+			}
+		})
+	}
+	if _, ok := podSpecOf(object{Kind: "Service"}); ok {
+		t.Error("a Service reported a pod spec")
+	}
+}

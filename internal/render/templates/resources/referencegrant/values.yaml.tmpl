@@ -11,8 +11,12 @@
 referenceGrant:
   # -- Create the ReferenceGrant
   enabled: false
-  # -- Namespaces and kinds allowed to reference this chart's Service
+  # -- Namespaces and kinds allowed to reference this chart's Service.
+  #
+  # namespace is where the referencing HTTPRoute lives — not where the Gateway
+  # or its controller lives. Routes are almost never in gateway-system, and a
+  # grant issued to the wrong namespace grants nothing while looking correct.
   from:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      namespace: gateway-system
+      namespace: ""

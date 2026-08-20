@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"golang.org/x/term"
 )
@@ -37,4 +38,28 @@ func (p painter) bold(s string) string   { return p.wrap("1", s) }
 
 func fprintf(w io.Writer, format string, a ...any) {
 	fmt.Fprintf(w, format, a...)
+}
+
+// shellQuote makes a string safe to paste into a shell. The commands hck
+// prints are meant to be run, and a chart directory with a space in it turns
+// "hck check --chart /tmp/my charts/app" into two arguments and a wrong answer.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if !strings.ContainsFunc(s, needsQuoting) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// needsQuoting reports whether a rune would change how a shell parses the word
+// it appears in. The safe set is deliberately narrow: anything outside it is
+// quoted rather than reasoned about.
+func needsQuoting(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	}
+	return !strings.ContainsRune("._-/,=:@+", r)
 }

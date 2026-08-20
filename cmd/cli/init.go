@@ -2,14 +2,14 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
-	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
 	"github.com/somaz94/helm-chart-kit/internal/chart"
-	"github.com/somaz94/helm-chart-kit/internal/docs"
 	"github.com/somaz94/helm-chart-kit/internal/scaffold"
 	"github.com/spf13/cobra"
 )
@@ -32,48 +32,131 @@ type prompter struct {
 	in  *bufio.Reader
 	out io.Writer
 	p   painter
+	// done latches once the input is exhausted, so the remaining questions
+	// take their defaults without being printed.
+	done bool
 }
 
 // prompt puts a question with the hint shown in brackets and returns the raw
-// line. An empty line means "take the default"; so does EOF, so a script that
-// answers the first few questions does not have to answer the rest.
-func (q *prompter) prompt(question, hint string) string {
+// line. An empty line means "take the default".
+//
+// EOF means the same, and latches: once the input is exhausted nothing further
+// is printed, so a script that answers the first two questions does not scroll
+// five more prompts past the reader. A read error that is not EOF is a real
+// failure and is returned — treating it as "take the default" would scaffold a
+// chart called my-app out of a broken pipe.
+func (q *prompter) prompt(question, hint string) (string, error) {
+	if q.done {
+		return "", nil
+	}
 	fprintf(q.out, "%s %s ", question, q.p.dim("["+hint+"]"))
 	line, err := q.in.ReadString('\n')
-	if err != nil && line == "" {
-		// Nothing more is coming; close the line the prompt opened.
-		fprintf(q.out, "\n")
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("read answer: %w", err)
+		}
+		q.done = true
+		if line == "" {
+			// Close the line this prompt opened; nothing will.
+			fprintf(q.out, "\n")
+		}
 	}
-	return strings.TrimSpace(line)
+	return strings.TrimSpace(line), nil
 }
 
 // ask returns the answer, or def when the line was empty.
-func (q *prompter) ask(question, def string) string {
+func (q *prompter) ask(question, def string) (string, error) {
 	hint := def
 	if hint == "" {
 		hint = "none"
 	}
-	if s := q.prompt(question, hint); s != "" {
-		return s
+	s, err := q.prompt(question, hint)
+	if err != nil {
+		return "", err
 	}
-	return def
+	if s != "" {
+		return s, nil
+	}
+	return def, nil
 }
 
 // askYesNo shows which way Enter goes, with the default capitalised the way
 // every other command-line tool does it.
-func (q *prompter) askYesNo(question string, def bool) bool {
+func (q *prompter) askYesNo(question string, def bool) (bool, error) {
 	hint := "y/N"
 	if def {
 		hint = "Y/n"
 	}
-	switch strings.ToLower(q.prompt(question, hint)) {
-	case "y", "yes":
-		return true
-	case "n", "no":
-		return false
-	default:
-		return def
+	s, err := q.prompt(question, hint)
+	if err != nil {
+		return false, err
 	}
+	switch strings.ToLower(s) {
+	case "y", "yes":
+		return true, nil
+	case "n", "no":
+		return false, nil
+	default:
+		return def, nil
+	}
+}
+
+// say prints only while there is still someone answering. After EOF the
+// listings below each question are noise.
+func (q *prompter) say(format string, a ...any) {
+	if !q.done {
+		fprintf(q.out, format, a...)
+	}
+}
+
+// interview fills in the answers. Each question can fail, because a read
+// error is not the same as an empty line, and a chart scaffolded from a
+// broken pipe is worse than no chart.
+func (q *prompter) interview(a *answers, p painter) error {
+	var err error
+	q.say("%s\n\n", p.bold("A few questions. Enter takes the default in brackets."))
+
+	if a.name, err = q.ask("Chart name?", a.name); err != nil {
+		return err
+	}
+
+	q.say("\n  %s\n", p.dim("presets:"))
+	for _, ps := range catalog.Presets() {
+		q.say("    %-9s %s\n", ps.Name, p.dim(ps.Summary))
+	}
+	if a.preset, err = q.ask("Preset?", a.preset); err != nil {
+		return err
+	}
+
+	q.say("\n  %s\n", p.dim("optional resources: "+strings.Join(addableNames(), ", ")))
+	list, err := q.ask("Extra resources? (comma-separated)", "")
+	if err != nil {
+		return err
+	}
+	a.extra = splitList([]string{list})
+
+	q.say("\n  %s\n", p.dim("platforms: "+strings.Join(catalog.PlatformNames(), ", ")))
+	if list, err = q.ask("Platform overlays?", ""); err != nil {
+		return err
+	}
+	a.platforms = splitList([]string{list})
+
+	q.say("\n  %s\n", p.dim("environments: "+strings.Join(catalog.EnvironmentNames(), ", ")))
+	if list, err = q.ask("Environment overlays?", ""); err != nil {
+		return err
+	}
+	a.envs = splitList([]string{list})
+
+	q.say("\n")
+	if a.schema, err = q.askYesNo("Write values.schema.json?", false); err != nil {
+		return err
+	}
+	q.say("\n")
+	if a.readme, err = q.askYesNo("Write a values table into README.md?", false); err != nil {
+		return err
+	}
+	q.say("\n")
+	return nil
 }
 
 func newInitCmd() *cobra.Command {
@@ -90,8 +173,8 @@ func newInitCmd() *cobra.Command {
 Everything here is also a flag on "hck new"; init prints the equivalent
 command when it is done, so the second chart can skip the questions.
 
-With --defaults, or when stdin is not a terminal and has nothing to say, every
-answer takes its default and nothing is asked.`,
+--defaults asks nothing. Input that runs out partway through is fine too: the
+remaining questions take their defaults and stop being printed.`,
 		Args: cobra.MaximumNArgs(1),
 		Example: `  hck init
   hck init payments-api
@@ -107,31 +190,9 @@ answer takes its default and nothing is asked.`,
 			}
 
 			if !opts.defaults {
-				fprintf(out, "%s\n", p.bold("A few questions. Enter takes the default in brackets."))
-				fprintf(out, "\n")
-
-				a.name = q.ask("Chart name?", a.name)
-
-				fprintf(out, "\n  %s\n", p.dim("presets:"))
-				for _, ps := range catalog.Presets() {
-					fprintf(out, "    %-9s %s\n", ps.Name, p.dim(ps.Summary))
+				if err := q.interview(&a, p); err != nil {
+					return err
 				}
-				a.preset = q.ask("Preset?", a.preset)
-
-				fprintf(out, "\n  %s\n", p.dim("optional resources: "+strings.Join(addableNames(), ", ")))
-				a.extra = splitList([]string{q.ask("Extra resources? (comma-separated)", "")})
-
-				fprintf(out, "\n  %s\n", p.dim("platforms: "+strings.Join(catalog.PlatformNames(), ", ")))
-				a.platforms = splitList([]string{q.ask("Platform overlays?", "")})
-
-				fprintf(out, "\n  %s\n", p.dim("environments: "+strings.Join(catalog.EnvironmentNames(), ", ")))
-				a.envs = splitList([]string{q.ask("Environment overlays?", "")})
-
-				fprintf(out, "\n")
-				a.schema = q.askYesNo("Write values.schema.json?", false)
-				fprintf(out, "\n")
-				a.readme = q.askYesNo("Write a values table into README.md?", false)
-				fprintf(out, "\n")
 			}
 
 			if err := scaffold.ValidateName(a.name); err != nil {
@@ -168,7 +229,7 @@ answer takes its default and nothing is asked.`,
 			}
 
 			fprintf(out, "\n%s\n  %s\n", p.dim("The same thing without the questions:"), equivalentCommand(a, opts.dir))
-			fprintf(out, "\nNext:\n  hck check --chart %s%s\n", plan.ChartDir, checkSuffix(a))
+			fprintf(out, "\nNext:\n  hck check --chart %s%s\n", shellQuote(plan.ChartDir), checkSuffix(a))
 			return nil
 		},
 	}
@@ -195,9 +256,9 @@ func addableNames() []string {
 // first chart, the flags are for every one after it.
 func equivalentCommand(a answers, dir string) string {
 	var b strings.Builder
-	b.WriteString("hck new " + a.name)
+	b.WriteString("hck new " + shellQuote(a.name))
 	if dir != "." {
-		b.WriteString(" --dir " + dir)
+		b.WriteString(" --dir " + shellQuote(dir))
 	}
 	if a.preset != "web" {
 		b.WriteString(" --preset " + a.preset)
@@ -215,7 +276,9 @@ func equivalentCommand(a answers, dir string) string {
 		b.WriteString(" --schema")
 	}
 	if a.readme {
-		b.WriteString(" && hck docs --chart " + a.name + " --write")
+		// The chart is at <dir>/<name>, not <name>: chaining "hck docs
+		// --chart <name>" only worked when --dir was left at the default.
+		b.WriteString(" && hck docs --chart " + shellQuote(filepath.Join(dir, a.name)) + " --write")
 	}
 	return b.String()
 }
@@ -233,32 +296,14 @@ func checkSuffix(a answers) string {
 	return b.String()
 }
 
-// writeReadme generates the values table for a chart that has just been made.
+// writeReadme generates the values table for a chart that has just been made,
+// through the same path "hck docs --write" takes. The two were briefly
+// separate copies and immediately drifted — different error wrapping, and only
+// one of them read an existing README.
 func writeReadme(dir string) error {
 	c, err := chart.Load(dir)
 	if err != nil {
 		return err
 	}
-	values, err := c.Values()
-	if err != nil {
-		return err
-	}
-	schema, err := c.Schema()
-	if err != nil {
-		return err
-	}
-	if schema == nil {
-		if resources, err := scaffold.ChartResources(c); err == nil && len(resources) > 0 {
-			schema, _, _ = scaffold.BuildSchema(scaffold.DataFor(c), resources, false)
-		}
-	}
-	table, err := docs.Table(values, docs.Options{Schema: schema})
-	if err != nil {
-		return err
-	}
-	next, err := docs.Replace([]byte(docs.Skeleton(c.Meta.Name, c.Meta.Description)), table)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(c.ReadmePath(), next, 0o644)
+	return writeValuesTable(c)
 }

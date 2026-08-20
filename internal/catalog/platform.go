@@ -24,12 +24,19 @@ var platforms = []Platform{
 	{
 		Name:    "aws",
 		Summary: "EKS: IRSA, ALB ingress, NLB services, gp3 volumes",
-		Needs:   []string{"AWS Load Balancer Controller", "EBS CSI driver"},
+		Needs: []string{
+			"AWS Load Balancer Controller",
+			"EBS CSI driver, and a gp3 StorageClass — EKS ships gp2 only",
+			"the VPC CNI network policy controller, if networkPolicy is enabled",
+		},
 	},
 	{
 		Name:    "gcp",
 		Summary: "GKE: Workload Identity, GCE ingress, NEG services, pd-balanced volumes",
-		Needs:   []string{"GKE Ingress controller"},
+		Needs: []string{
+			"GKE Ingress controller",
+			"a Prometheus Operator, if metrics are enabled — Google Managed Prometheus reads PodMonitoring, not ServiceMonitor",
+		},
 	},
 	{
 		Name:    "azure",
@@ -39,9 +46,24 @@ var platforms = []Platform{
 	{
 		Name:    "onprem",
 		Summary: "Self-managed: ingress-nginx, MetalLB, a storage class you provide",
-		Needs:   []string{"ingress-nginx", "MetalLB", "a default StorageClass"},
+		Needs: []string{
+			"ingress-nginx",
+			"MetalLB",
+			"a default StorageClass",
+			"metrics-server, if autoscaling is enabled — without it an HPA reports <unknown> and never scales",
+		},
 	},
 }
+
+// A platform overlay says how something is wired — an annotation, a class, a
+// store reference. It must never set a key ending in ".enabled".
+//
+// Enabling and disabling belongs to the environment axis, because the two
+// stack and the last -f wins: a platform overlay switching a NetworkPolicy off
+// and a prod overlay switching it on give different answers depending on the
+// order they are passed in, which is not a decision anybody made.
+// TestPlatformOverlaysDoNotToggle enforces it. Where a platform genuinely
+// cannot support something, that belongs in Needs, where it is said once.
 
 // ValuesFile is the file name a platform's overlay takes inside a chart.
 //

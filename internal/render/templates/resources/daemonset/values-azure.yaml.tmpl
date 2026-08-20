@@ -1,2 +1,4 @@
+# -- Without this label the webhook does not inject the projected token, and
+# the workload falls back to whatever identity the node has.
 podLabels:
   azure.workload.identity/use: "true"

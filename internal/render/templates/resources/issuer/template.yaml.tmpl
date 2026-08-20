@@ -9,7 +9,9 @@ spec:
   {{- if eq .Values.issuer.kind "acme" }}
   acme:
     server: {{ .Values.issuer.acme.server }}
-    email: {{ .Values.issuer.acme.email }}
+    {{- with .Values.issuer.acme.email }}
+    email: {{ . | quote }}
+    {{- end }}
     privateKeySecretRef:
       name: {{ include "[[ .ChartName ]].fullname" . }}-acme-key
     solvers:
@@ -17,7 +19,9 @@ spec:
   {{- else if eq .Values.issuer.kind "ca" }}
   ca:
     secretName: {{ .Values.issuer.ca.secretName }}
-  {{- else }}
+  {{- else if eq .Values.issuer.kind "selfSigned" }}
   selfSigned: {}
+  {{- else }}
+  {{- fail (printf "issuer.kind is %q; it has to be acme, ca or selfSigned" .Values.issuer.kind) }}
   {{- end }}
 {{- end }}

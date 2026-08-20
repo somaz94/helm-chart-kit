@@ -1,4 +1,6 @@
 service:
+  # -- The annotations below are only read for a LoadBalancer Service; on the
+  # default ClusterIP they are inert. Switch the type when you want the NLB.
   annotations:
     # -- NLB rather than the legacy in-tree ELB. Needs the AWS Load Balancer
     # Controller; without it the annotations are ignored and you get a

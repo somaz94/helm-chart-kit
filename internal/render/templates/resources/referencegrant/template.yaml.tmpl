@@ -6,6 +6,9 @@ metadata:
   labels:
     {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.referenceGrant.from }}
+  {{- fail "referenceGrant.from has to name at least one namespace; the API rejects an empty list" }}
+  {{- end }}
   from:
     {{- range .Values.referenceGrant.from }}
     - group: {{ .group | default "gateway.networking.k8s.io" | quote }}

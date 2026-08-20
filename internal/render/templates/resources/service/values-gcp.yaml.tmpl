@@ -3,5 +3,6 @@ service:
     # -- Standalone network endpoint groups, so the load balancer targets pods
     # directly instead of hopping through a NodePort.
     cloud.google.com/neg: '{"ingress": true}'
-    # -- Internal keeps it inside the VPC. Remove for an external IP.
+    # -- Only read for a LoadBalancer Service; inert on the default ClusterIP.
+    # Internal keeps it inside the VPC. Remove for an external IP.
     networking.gke.io/load-balancer-type: Internal
