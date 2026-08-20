@@ -30,7 +30,7 @@ Every preset carries exactly one workload. That is enforced by a test, not a con
 | `service` | `v1` | `service` | `headless: true` for StatefulSet peer DNS. |
 | `ingress` | `networking.k8s.io/v1` | `ingress` | Prefer `httproute` where Gateway API is available. |
 | `httproute` | `gateway.networking.k8s.io/v1` | `httpRoute` | Needs the Gateway API CRDs. Backend defaults to this chart's Service. |
-| `hpa` | `autoscaling/v2` | `autoscaling` | Memory target is null by default — it ratchets up and stays. |
+| `hpa` | `autoscaling/v2` | `autoscaling` | Memory target is null by default — it ratchets up and stays. `targetKind` follows the chart's workload. |
 | `pdb` | `policy/v1` | `podDisruptionBudget` | Emits `minAvailable` or `maxUnavailable`, never both. |
 | `networkpolicy` | `networking.k8s.io/v1` | `networkPolicy` | Default-deny with a DNS egress rule. |
 | `serviceaccount` | `v1` | `serviceAccount` | `automount` off by default. |
@@ -43,8 +43,8 @@ Every preset carries exactly one workload. That is enforced by a test, not a con
 | `prometheusrule` | `monitoring.coreos.com/v1` | `prometheusRule` | Rules run through `tpl`, so they can scope to the release. |
 | `podmonitor` | `monitoring.coreos.com/v1` | `podMonitor` | Scrapes pods with no Service in front, which is what a DaemonSet needs. |
 | `certificate` | `cert-manager.io/v1` | `certificate` | Needs cert-manager. `dnsNames` defaults to the hosts the chart already serves. |
-| `scaledobject` | `keda.sh/v1alpha1` | `scaledObject` | Needs KEDA. Do not enable `autoscaling` too — KEDA owns its own HPA. |
-| `vpa` | `autoscaling.k8s.io/v1` | `verticalPodAutoscaler` | `updateMode: "Off"` by default; quoted, or YAML reads it as `false`. |
+| `scaledobject` | `keda.sh/v1alpha1` | `scaledObject` | Needs KEDA. Do not enable `autoscaling` too — KEDA owns its own HPA. `targetKind` follows the chart's workload. |
+| `vpa` | `autoscaling.k8s.io/v1` | `verticalPodAutoscaler` | `updateMode: "Off"` by default; quoted, or YAML reads it as `false`. `targetKind` follows the chart's workload. |
 | `sealedsecret` | `bitnami.com/v1alpha1` | `sealedSecret` | Ciphertext is safe to commit. Sealed values are bound to a namespace and name. |
 | `issuer` | `cert-manager.io/v1` | `issuer` | Namespaced. Prefer a ClusterIssuer when charts share an ACME account. |
 | `referencegrant` | `gateway.networking.k8s.io/v1beta1` | `referenceGrant` | Lets an HTTPRoute in another namespace reach this Service. |

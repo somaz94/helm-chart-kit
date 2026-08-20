@@ -257,6 +257,68 @@ var rules = []Rule{
 		Summary: "chart renders an HPA alongside an evicting VPA",
 		set:     hpaAndVPARule,
 	},
+	{
+		ID: "HCK033", Severity: Warn, Scope: SetScope,
+		Summary: "a scaler names a workload the chart does not render",
+		set:     danglingScaleTargetRule,
+	},
+}
+
+// scaleTargetField is where each controller names the workload it sizes.
+// Every one of them is a {kind, name} pair, and every one of them is inert if
+// nothing by that name renders.
+var scaleTargetField = map[string]string{
+	"HorizontalPodAutoscaler": "scaleTargetRef",
+	"ScaledObject":            "scaleTargetRef",
+	"VerticalPodAutoscaler":   "targetRef",
+}
+
+// danglingScaleTargetRule catches a scaler pointed at something that is not
+// there.
+//
+// This is the quietest way a chart can be wrong. Nothing fails: the chart
+// renders, helm installs it, and the controller reports "I cannot find that"
+// in a status nobody reads while the workload never scales. Two ordinary
+// things produce it — "hck add hpa" against a chart whose workload is not the
+// kind the scaler defaults to, and removing a workload out from under one.
+func danglingScaleTargetRule(objs []object) []hit {
+	rendered := map[string]bool{}
+	var workloads []string
+	for _, o := range objs {
+		rendered[o.Kind+"/"+o.Name] = true
+		if workloadKinds[o.Kind] {
+			workloads = append(workloads, o.Kind+"/"+o.Name)
+		}
+	}
+
+	var out []hit
+	for _, o := range objs {
+		field, ok := scaleTargetField[o.Kind]
+		if !ok {
+			continue
+		}
+		ref, ok := o.Spec[field].(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, name := str(ref["kind"]), str(ref["name"])
+		if kind == "" || name == "" || rendered[kind+"/"+name] {
+			continue
+		}
+		// Naming what the chart does render is most of the answer: the reader
+		// sees the mismatch instead of being told to go looking for it.
+		instead := "and it renders no workload at all"
+		if len(workloads) > 0 {
+			instead = "it renders " + strings.Join(workloads, ", ")
+		}
+		out = append(out, hit{
+			Where: fmt.Sprintf("%s/%s", o.Kind, o.Name),
+			Message: fmt.Sprintf(
+				"%s names %s/%s, which this chart does not render — %s. Nothing fails: the controller reports that it cannot find the target in its own status, and the workload never scales",
+				field, kind, name, instead),
+		})
+	}
+	return out
 }
 
 // Rules returns every house rule, in ID order.

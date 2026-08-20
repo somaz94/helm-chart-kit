@@ -7,8 +7,10 @@
 autoscaling:
   # -- Create the HorizontalPodAutoscaler
   enabled: false
-  # -- Kind of the scale target: Deployment or StatefulSet
-  targetKind: Deployment
+  # -- Kind of the scale target: Deployment or StatefulSet. Follows the
+  # workload this chart carries, because an HPA pointed at a name nothing
+  # renders reports that only in its own status and never scales.
+  targetKind: [[ if eq .WorkloadKind "StatefulSet" ]]StatefulSet[[ else ]]Deployment[[ end ]]
   # -- Lower bound
   minReplicas: 2
   # -- Upper bound

@@ -14,8 +14,8 @@
 scaledObject:
   # -- Create the ScaledObject
   enabled: false
-  # -- Kind of the scale target
-  targetKind: Deployment
+  # -- Kind of the scale target. Follows the workload this chart carries.
+  targetKind: [[ if eq .WorkloadKind "StatefulSet" ]]StatefulSet[[ else ]]Deployment[[ end ]]
   # -- Lower bound. Zero is the point of KEDA: an idle consumer costs nothing.
   minReplicaCount: 0
   # -- Upper bound

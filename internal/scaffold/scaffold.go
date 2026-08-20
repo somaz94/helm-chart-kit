@@ -149,12 +149,13 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	}
 
 	data := render.Data{
-		ChartName:   opts.Name,
-		Description: opts.Description,
-		Version:     opts.Version,
-		AppVersion:  opts.AppVersion,
-		Preset:      opts.Preset,
-		Resources:   names(resources),
+		ChartName:    opts.Name,
+		Description:  opts.Description,
+		Version:      opts.Version,
+		AppVersion:   opts.AppVersion,
+		Preset:       opts.Preset,
+		Resources:    names(resources),
+		WorkloadKind: workloadKind(resources),
 	}
 
 	plan := &Plan{ChartDir: dir}
@@ -248,12 +249,17 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 		}
 	}
 
-	data := DataFor(c)
-	data.Resources = names(resources)
-
 	plan := &Plan{ChartDir: c.Dir}
 	present := presentResources(existingTemplates)
 	existing := resourcesFrom(present)
+
+	// The finished chart, not just what is arriving: a scaler added to a chart
+	// that already has a StatefulSet has to point at the StatefulSet, and the
+	// arriving list does not mention it.
+	after := union(existing, resources)
+	data := DataFor(c)
+	data.Resources = names(after)
+	data.WorkloadKind = workloadKind(after)
 
 	frags, err := planResources(plan, data, resources, resourceState{
 		present: present,
@@ -290,7 +296,6 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 		return nil, err
 	}
 	if currentSchema != nil {
-		after := union(existing, resources)
 		doc, _, err := BuildSchema(data, after, SchemaIsStrictBytes(currentSchema))
 		if err != nil {
 			return nil, err
@@ -504,7 +509,34 @@ func names(rs []catalog.Resource) []string {
 	return out
 }
 
+// workloadKindByName maps a catalog workload to the Kubernetes kind its
+// template emits. Hand-written and then checked: TestWorkloadKindsMatchTheTemplates
+// renders each one and compares, so an entry that drifts from its template
+// fails rather than mis-aiming a scaler.
+var workloadKindByName = map[string]string{
+	"deployment":  "Deployment",
+	"statefulset": "StatefulSet",
+	"daemonset":   "DaemonSet",
+	"cronjob":     "CronJob",
+}
+
+// workloadKind is the kind of the one primary workload a resource set carries,
+// or "" when it carries none. A chart with two is refused before this is
+// reached, so the first is the only one.
+func workloadKind(rs []catalog.Resource) string {
+	for _, r := range canonicalOrder(rs) {
+		if r.Workload {
+			return workloadKindByName[r.Name]
+		}
+	}
+	return ""
+}
+
 // DataFor builds the template substitution context from a chart on disk.
+//
+// WorkloadKind is deliberately left empty here: it needs the chart's resource
+// set, which this does not read. Every caller that renders a values fragment
+// resolves it from the set it already has.
 func DataFor(c *chart.Chart) render.Data {
 	return render.Data{
 		ChartName:   c.Meta.Name,

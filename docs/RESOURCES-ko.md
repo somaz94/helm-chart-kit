@@ -30,7 +30,7 @@
 | `service` | `v1` | `service` | StatefulSet 피어 DNS를 위한 `headless: true`. |
 | `ingress` | `networking.k8s.io/v1` | `ingress` | Gateway API를 쓸 수 있다면 `httproute` 쪽이 낫습니다. |
 | `httproute` | `gateway.networking.k8s.io/v1` | `httpRoute` | Gateway API CRD 필요. backend는 이 차트의 Service가 기본값. |
-| `hpa` | `autoscaling/v2` | `autoscaling` | 메모리 타깃은 기본 null — 한 번 올라가면 내려오지 않기 때문입니다. |
+| `hpa` | `autoscaling/v2` | `autoscaling` | 메모리 타깃은 기본 null — 한 번 올라가면 내려오지 않기 때문입니다. `targetKind`는 차트의 workload를 따라갑니다. |
 | `pdb` | `policy/v1` | `podDisruptionBudget` | `minAvailable`이나 `maxUnavailable` 중 하나만, 절대 둘 다는 안 됩니다. |
 | `networkpolicy` | `networking.k8s.io/v1` | `networkPolicy` | DNS egress 규칙이 있는 기본 거부. |
 | `serviceaccount` | `v1` | `serviceAccount` | `automount` 기본 꺼짐. |
@@ -43,8 +43,8 @@
 | `prometheusrule` | `monitoring.coreos.com/v1` | `prometheusRule` | 규칙이 `tpl`을 거치므로 릴리스 단위로 범위를 좁힐 수 있습니다. |
 | `podmonitor` | `monitoring.coreos.com/v1` | `podMonitor` | Service 없는 파드를 직접 스크레이프. DaemonSet에 필요한 형태입니다. |
 | `certificate` | `cert-manager.io/v1` | `certificate` | cert-manager 필요. `dnsNames`는 차트가 이미 서빙하는 호스트가 기본값. |
-| `scaledobject` | `keda.sh/v1alpha1` | `scaledObject` | KEDA 필요. `autoscaling`은 같이 켜지 마세요 — KEDA가 자체 HPA를 만듭니다. |
-| `vpa` | `autoscaling.k8s.io/v1` | `verticalPodAutoscaler` | 기본 `updateMode: "Off"`. 따옴표 필수 — 없으면 YAML이 이 값을 `false`로 읽습니다. |
+| `scaledobject` | `keda.sh/v1alpha1` | `scaledObject` | KEDA 필요. `autoscaling`은 같이 켜지 마세요 — KEDA가 자체 HPA를 만듭니다. `targetKind`는 차트의 workload를 따라갑니다. |
+| `vpa` | `autoscaling.k8s.io/v1` | `verticalPodAutoscaler` | 기본 `updateMode: "Off"`. 따옴표 필수 — 없으면 YAML이 이 값을 `false`로 읽습니다. `targetKind`는 차트의 workload를 따라갑니다. |
 | `sealedsecret` | `bitnami.com/v1alpha1` | `sealedSecret` | 암호문은 커밋해도 안전. 봉인된 값은 네임스페이스와 이름에 묶입니다. |
 | `issuer` | `cert-manager.io/v1` | `issuer` | 네임스페이스 단위. 여러 차트가 ACME 계정을 공유한다면 ClusterIssuer가 낫습니다. |
 | `referencegrant` | `gateway.networking.k8s.io/v1beta1` | `referenceGrant` | 다른 네임스페이스의 HTTPRoute가 이 Service에 닿게 허용합니다. |

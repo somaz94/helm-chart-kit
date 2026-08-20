@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
 	"github.com/somaz94/helm-chart-kit/internal/chart"
+	"github.com/somaz94/helm-chart-kit/internal/render"
 	"github.com/somaz94/helm-chart-kit/internal/values"
 )
 
@@ -953,3 +955,113 @@ func TestNoOverlayNoteFollowsTheAxis(t *testing.T) {
 		t.Errorf("got  %q\nwant %q", got, want)
 	}
 }
+
+// The workload kind a scaler is pointed at comes from a hand-written map, and
+// a map that drifts from the templates aims the scaler at a name nothing
+// renders — the exact failure HCK033 exists to catch, arriving from inside hck
+// instead of from the user. So the map is checked against what the templates
+// actually emit.
+func TestWorkloadKindsMatchTheTemplates(t *testing.T) {
+	data := render.Data{ChartName: "demo", Description: "d", Version: "0.1.0", AppVersion: "1.0.0"}
+	for _, r := range catalog.Resources() {
+		_, mapped := workloadKindByName[r.Name]
+		if !r.Workload {
+			if mapped {
+				t.Errorf("%s is not a workload but has a kind mapped for it", r.Name)
+			}
+			continue
+		}
+		if !mapped {
+			t.Errorf("%s is a workload with no kind mapped for it, so a scaler added beside it aims at nothing", r.Name)
+			continue
+		}
+		body, err := render.ResourceTemplate(r.Name, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := kindLineRE.FindSubmatch(body)
+		if m == nil {
+			t.Errorf("%s renders no kind line", r.Name)
+			continue
+		}
+		if got, want := string(m[1]), workloadKindByName[r.Name]; got != want {
+			t.Errorf("%s renders kind %q, the map says %q", r.Name, got, want)
+		}
+	}
+}
+
+var kindLineRE = regexp.MustCompile(`(?m)^kind: (\w+)`)
+
+func TestWorkloadKindOfAResourceSet(t *testing.T) {
+	for name, want := range map[string]string{
+		"deployment":  "Deployment",
+		"statefulset": "StatefulSet",
+		"daemonset":   "DaemonSet",
+		"cronjob":     "CronJob",
+	} {
+		r, ok := catalog.LookupResource(name)
+		if !ok {
+			t.Fatalf("no %s", name)
+		}
+		sa, _ := catalog.LookupResource("serviceaccount")
+		if got := workloadKind([]catalog.Resource{sa, r}); got != want {
+			t.Errorf("workloadKind with %s = %q, want %q", name, got, want)
+		}
+	}
+	cm, _ := catalog.LookupResource("configmap")
+	if got := workloadKind([]catalog.Resource{cm}); got != "" {
+		t.Errorf("workloadKind with no workload = %q, want empty", got)
+	}
+}
+
+// A scaler added beside a StatefulSet has to point at the StatefulSet. It did
+// not: the values fragment said Deployment whatever the chart carried, so
+// "hck add hpa" against a stateful chart shipped an HPA that never scaled.
+func TestScalerDefaultsFollowTheChartsWorkload(t *testing.T) {
+	for preset, want := range map[string]struct{ hpa, vpa, keda string }{
+		"web":      {"Deployment", "Deployment", "Deployment"},
+		"stateful": {"StatefulSet", "StatefulSet", "StatefulSet"},
+		// An HPA and a KEDA ScaledObject cannot target a DaemonSet at all, so
+		// they keep the schema's other option rather than emitting one it
+		// rejects. HCK033 is what then says the HPA has nothing to scale.
+		"daemon":  {"Deployment", "DaemonSet", "Deployment"},
+		"cronjob": {"Deployment", "Deployment", "Deployment"},
+	} {
+		t.Run(preset, func(t *testing.T) {
+			c := newChart(t, preset)
+			plan, err := PlanAdd(c, []string{"hpa", "vpa", "scaledobject"}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Apply(plan); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := c.Values()
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := targetKindsIn(string(raw))
+			if len(got) != 3 {
+				t.Fatalf("got %d targetKind lines, want 3: %v", len(got), got)
+			}
+			for i, want := range []string{want.hpa, want.vpa, want.keda} {
+				if got[i] != want {
+					t.Errorf("targetKind %d = %q, want %q (all: %v)", i, got[i], want, got)
+				}
+			}
+		})
+	}
+}
+
+// targetKindsIn reads the targetKind lines in the order the merge appends
+// them, which is canonical order: hpa, then scaledobject, then vpa — so the
+// caller compares against that order, not the order it asked in.
+func targetKindsIn(values string) []string {
+	var out []string
+	for _, m := range targetKindRE.FindAllStringSubmatch(values, -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+var targetKindRE = regexp.MustCompile(`(?m)^\s+targetKind: (\w+)`)

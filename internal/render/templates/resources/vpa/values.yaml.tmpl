@@ -12,8 +12,9 @@
 verticalPodAutoscaler:
   # -- Create the VerticalPodAutoscaler
   enabled: false
-  # -- Kind of the target
-  targetKind: Deployment
+  # -- Kind of the target. Follows the workload this chart carries, of the
+  # three a VerticalPodAutoscaler can size.
+  targetKind: [[ if or (eq .WorkloadKind "StatefulSet") (eq .WorkloadKind "DaemonSet") ]][[ .WorkloadKind ]][[ else ]]Deployment[[ end ]]
   # -- Off only records recommendations, which is where to start: read them for
   # a week before letting anything act on them. Initial applies them to new
   # pods; Auto and Recreate evict running ones to resize.

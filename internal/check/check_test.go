@@ -434,3 +434,81 @@ func setRules(objs []object) []Finding {
 	}
 	return rep.Findings
 }
+
+// The quietest way a chart can be wrong: the scaler renders, helm installs it,
+// and the controller reports that it cannot find its target in a status nobody
+// reads.
+func TestDanglingScaleTargetIsReported(t *testing.T) {
+	hpa := func(kind, name string) object {
+		return object{Kind: "HorizontalPodAutoscaler", Name: "app", Spec: map[string]any{
+			"scaleTargetRef": map[string]any{"kind": kind, "name": name},
+		}}
+	}
+	deployment := object{Kind: "Deployment", Name: "app", Spec: map[string]any{
+		"template": map[string]any{"spec": map[string]any{}},
+	}}
+	statefulset := object{Kind: "StatefulSet", Name: "app", Spec: map[string]any{
+		"template": map[string]any{"spec": map[string]any{}},
+	}}
+
+	t.Run("target is there", func(t *testing.T) {
+		if got := findRule(setRules([]object{deployment, hpa("Deployment", "app")}), "HCK033"); got != nil {
+			t.Errorf("fired on a scaler whose target renders: %v", got)
+		}
+	})
+	t.Run("wrong kind", func(t *testing.T) {
+		got := findRule(setRules([]object{statefulset, hpa("Deployment", "app")}), "HCK033")
+		if got == nil {
+			t.Fatal("an HPA aimed at a kind the chart does not render was not reported")
+		}
+		// The chart's own workload is named, so the mismatch is the message
+		// rather than something the reader has to go and look up.
+		if !strings.Contains(got.Message, "StatefulSet/app") {
+			t.Errorf("the message does not say what the chart renders: %q", got.Message)
+		}
+	})
+	t.Run("no workload at all", func(t *testing.T) {
+		got := findRule(setRules([]object{hpa("Deployment", "app")}), "HCK033")
+		if got == nil {
+			t.Fatal("an HPA in a chart with no workload was not reported")
+		}
+		if !strings.Contains(got.Message, "no workload at all") {
+			t.Errorf("got %q", got.Message)
+		}
+	})
+	t.Run("every scaler kind is covered", func(t *testing.T) {
+		for _, o := range []object{
+			{Kind: "ScaledObject", Name: "app", Spec: map[string]any{
+				"scaleTargetRef": map[string]any{"kind": "Deployment", "name": "gone"}}},
+			{Kind: "VerticalPodAutoscaler", Name: "app", Spec: map[string]any{
+				"targetRef": map[string]any{"kind": "Deployment", "name": "gone"}}},
+		} {
+			if findRule(setRules([]object{deployment, o}), "HCK033") == nil {
+				t.Errorf("%s aimed at a missing target was not reported", o.Kind)
+			}
+		}
+	})
+	t.Run("a reference that says nothing is not a finding", func(t *testing.T) {
+		for _, spec := range []map[string]any{
+			{},
+			{"scaleTargetRef": "not a map"},
+			{"scaleTargetRef": map[string]any{"name": "app"}},
+			{"scaleTargetRef": map[string]any{"kind": "Deployment"}},
+		} {
+			o := object{Kind: "HorizontalPodAutoscaler", Name: "app", Spec: spec}
+			if got := findRule(setRules([]object{deployment, o}), "HCK033"); got != nil {
+				t.Errorf("fired on %v: %v", spec, got)
+			}
+		}
+	})
+}
+
+// findRule returns the first finding for a rule, or nil.
+func findRule(findings []Finding, id string) *Finding {
+	for i, f := range findings {
+		if f.Rule == id {
+			return &findings[i]
+		}
+	}
+	return nil
+}

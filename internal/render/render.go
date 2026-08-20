@@ -46,6 +46,14 @@ type Data struct {
 	Preset string
 	// Resources are the catalog names included in the chart.
 	Resources []string
+	// WorkloadKind is the Kubernetes kind of the chart's primary workload —
+	// Deployment, StatefulSet, DaemonSet or CronJob — and "" for a chart that
+	// carries none.
+	//
+	// A scaler has to name its target, and naming the wrong one is invisible:
+	// the controller reports it only in its own status, and the chart renders,
+	// installs and does nothing.
+	WorkloadKind string
 }
 
 // ChartFile renders one file from the chart skeleton, e.g. "Chart.yaml" or

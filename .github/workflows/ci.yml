@@ -403,6 +403,46 @@ jobs:
           [[ "$out" == *'"ok": false'* ]] || { echo "FAIL: the JSON verdict disagrees with the exit status"; exit 1; }
           echo "PASS: rule configuration"
 
+      # A scaler added beside a StatefulSet has to name the StatefulSet. It did
+      # not, and nothing said so: the HPA rendered, installed, and never scaled.
+      - name: Scalers point at the chart's own workload
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          printf 'image:\n  tag: "1.0.0"\nautoscaling:\n  enabled: true\n' > "$workdir/on.yaml"
+
+          hck new sf --dir "$workdir" --preset stateful --schema >/dev/null
+          hck add hpa --chart "$workdir/sf" >/dev/null
+          grep -q 'targetKind: StatefulSet' "$workdir/sf/values.yaml" || {
+            echo "FAIL: the HPA beside a StatefulSet still defaults to Deployment"
+            exit 1
+          }
+          hck check --chart "$workdir/sf" -f "$workdir/on.yaml" --strict >/dev/null
+
+          # And the check catches it whatever the cause: point the same HPA at
+          # a kind the chart does not render.
+          # Rewritten through a temporary file rather than sed -i, which
+          # takes an argument on BSD and none on GNU — so this step can be run
+          # by hand on the machine it was written on.
+          edited=$(mktemp)
+          sed 's/targetKind: StatefulSet/targetKind: Deployment/' "$workdir/sf/values.yaml" > "$edited"
+          mv "$edited" "$workdir/sf/values.yaml"
+          report=$(hck check --chart "$workdir/sf" -f "$workdir/on.yaml")
+          [[ "$report" == *"HCK033"* ]] || { echo "FAIL: a dangling scale target was not reported"; exit 1; }
+          [[ "$report" == *"StatefulSet/sf"* ]] || { echo "FAIL: the finding does not say what the chart renders"; exit 1; }
+          if hck check --chart "$workdir/sf" -f "$workdir/on.yaml" --strict >/dev/null 2>&1; then
+            echo "FAIL: --strict passed a scaler aimed at nothing"
+            exit 1
+          fi
+
+          # Removing a workload out from under a scaler reaches the same place.
+          hck new demo --dir "$workdir" --preset web >/dev/null
+          hck remove deployment --chart "$workdir/demo" >/dev/null
+          report=$(hck check --chart "$workdir/demo" -f "$workdir/on.yaml")
+          [[ "$report" == *"HCK033"* ]] || { echo "FAIL: a scaler left behind by remove was not reported"; exit 1; }
+          echo "PASS: scale targets"
+
       # init has to produce exactly what the command it prints would produce.
       - name: Scaffold interactively
         run: |

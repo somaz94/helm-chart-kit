@@ -420,6 +420,7 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK030` | warn | Chart renders more than one primary workload |
 | `HCK031` | warn | HPA and a KEDA ScaledObject both scale the workload |
 | `HCK032` | warn | HPA alongside a VPA in an evicting update mode |
+| `HCK033` | warn | A scaler names a workload the chart does not render |
 
 Warnings pass by default; `--strict` fails on them. `hck list rules` prints the same table with the wording `hck check` uses.
 
