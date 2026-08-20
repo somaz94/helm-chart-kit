@@ -271,6 +271,23 @@ jobs:
           }
           echo "PASS: environment overlays"
 
+      # init has to produce exactly what the command it prints would produce.
+      - name: Scaffold interactively
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          viainit=$(mktemp -d)
+          printf 'app\nstateful\npvc\ngcp\nprod\ny\nn\n' | hck init -d "$viainit" > /tmp/init.log
+          hck check --chart "$viainit/app" --platform gcp --env prod --strict >/dev/null
+
+          # Run the equivalent it printed, into a second directory.
+          vianew=$(mktemp -d)
+          cmd=$(grep -A1 'without the questions' /tmp/init.log | tail -1 | sed 's/^ *//')
+          echo "printed: $cmd"
+          ${cmd/$viainit/$vianew}
+          diff -r "$viainit/app" "$vianew/app"
+          echo "PASS: init"
+
       # A chart that never asked for a schema must not acquire one.
       - name: Keep the schema opt-in
         run: |

@@ -83,6 +83,9 @@ go install github.com/somaz94/helm-chart-kit/cmd@latest
 ## Quick start
 
 ```bash
+# Not sure which flags you want? Answer a few questions instead.
+hck init payments-api
+
 # Scaffold a chart
 hck new payments-api                       # web preset: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
 hck new billing-worker --preset worker     # no Service, no ingress path
@@ -122,6 +125,43 @@ hck schema --check                    # CI gate: is it still current?
 # See what is available
 hck list
 ```
+
+<br/>
+
+## `hck init`
+
+The flags below are worth learning, but not on the first chart:
+
+```console
+$ hck init payments-api
+Chart name? [payments-api]
+  presets:
+    cronjob   Scheduled task: CronJob, ServiceAccount, ConfigMap
+    daemon    Node agent: DaemonSet on every node, no Service
+    stateful  Stateful service: StatefulSet, headless Service, PDB, NetworkPolicy
+    web       HTTP service: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
+    worker    Queue consumer: Deployment with no Service and no ingress path
+Preset? [web]
+Extra resources? (comma-separated) [none] servicemonitor
+Platform overlays? [none] aws
+Environment overlays? [none] dev,prod
+Write values.schema.json? [y/N] y
+Write a values table into README.md? [y/N] y
+
+created ./payments-api (preset web)
+...
+
+The same thing without the questions:
+  hck new payments-api --with servicemonitor --platform aws --env dev,prod --schema && hck docs --chart payments-api --write
+```
+
+It prints the equivalent command because the questions are for the first
+chart and the flags are for every one after it. That equivalence is not a
+claim: `TestInitPrintsAWorkingEquivalent` runs the printed command and
+compares the two trees file by file.
+
+`--defaults` asks nothing, and an early EOF takes the remaining defaults — so
+a heredoc that answers the first two questions is a valid way to drive it.
 
 <br/>
 

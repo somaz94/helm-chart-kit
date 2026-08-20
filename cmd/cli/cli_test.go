@@ -26,6 +26,29 @@ func run(t *testing.T, args ...string) (string, error) {
 	return buf.String(), err
 }
 
+// runWith drives the command tree with something on stdin, for the prompts.
+func runWith(t *testing.T, stdin string, args ...string) (string, error) {
+	t.Helper()
+	t.Setenv("NO_COLOR", "1")
+	var buf bytes.Buffer
+	root := NewRootCmd()
+	root.SetIn(strings.NewReader(stdin))
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	root.SetArgs(args)
+	err := root.Execute()
+	return buf.String(), err
+}
+
+func mustRunWith(t *testing.T, stdin string, args ...string) string {
+	t.Helper()
+	out, err := runWith(t, stdin, args...)
+	if err != nil {
+		t.Fatalf("hck %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return out
+}
+
 func mustRun(t *testing.T, args ...string) string {
 	t.Helper()
 	out, err := run(t, args...)
@@ -883,5 +906,141 @@ func TestNewWritesBothAxes(t *testing.T) {
 	}
 	if _, err := run(t, "new", "other", "-d", parent, "--env", "nope"); err == nil {
 		t.Error("want an error for an unknown environment")
+	}
+}
+
+func TestInitAsksAndScaffolds(t *testing.T) {
+	parent := t.TempDir()
+	out := mustRunWith(t, "payments-api\nworker\npvc\naws\nprod\ny\nn\n", "init", "-d", parent)
+
+	for _, want := range []string{"Chart name?", "Preset?", "Platform overlays?", "Environment overlays?", "[y/N]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prompt %q was not asked:\n%s", want, out)
+		}
+	}
+	dir := filepath.Join(parent, "payments-api")
+	for _, name := range []string{"Chart.yaml", "values.yaml", "values.schema.json", "values-aws.yaml", "values-prod.yaml", "templates/pvc.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err != nil {
+			t.Errorf("%s was not written", name)
+		}
+	}
+	// "n" to the README question means no README.
+	if _, err := os.Stat(filepath.Join(dir, "README.md")); err == nil {
+		t.Error("a README was written despite answering no")
+	}
+}
+
+// The command init prints has to actually reproduce what init just made —
+// that equivalence is the whole reason for printing it.
+func TestInitPrintsAWorkingEquivalent(t *testing.T) {
+	viaInit := t.TempDir()
+	out := mustRunWith(t, "app\nstateful\npvc\ngcp\nprod\ny\nn\n", "init", "-d", viaInit)
+
+	_, tail, ok := strings.Cut(out, "without the questions:")
+	if !ok {
+		t.Fatalf("init printed no equivalent command:\n%s", out)
+	}
+	line := strings.TrimSpace(strings.SplitN(strings.TrimSpace(tail), "\n", 2)[0])
+	if !strings.HasPrefix(line, "hck new app ") {
+		t.Fatalf("equivalent command looks wrong: %q", line)
+	}
+
+	// Run the printed flags through "new" and compare the two trees.
+	viaNew := t.TempDir()
+	args := strings.Fields(line)[1:] // drop "hck"
+	for i := range args {
+		if args[i] == viaInit {
+			args[i] = viaNew
+		}
+	}
+	mustRun(t, args...)
+
+	compareTrees(t, filepath.Join(viaInit, "app"), filepath.Join(viaNew, "app"))
+}
+
+// compareTrees fails if the two chart directories differ in any file.
+func compareTrees(t *testing.T, a, b string) {
+	t.Helper()
+	read := func(root string) map[string]string {
+		out := map[string]string{}
+		if err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel(root, p)
+			if err != nil {
+				return err
+			}
+			body, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			out[filepath.ToSlash(rel)] = string(body)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	left, right := read(a), read(b)
+	for name, body := range left {
+		other, ok := right[name]
+		if !ok {
+			t.Errorf("%s is only in the init tree", name)
+			continue
+		}
+		if body != other {
+			t.Errorf("%s differs between init and new", name)
+		}
+	}
+	for name := range right {
+		if _, ok := left[name]; !ok {
+			t.Errorf("%s is only in the new tree", name)
+		}
+	}
+}
+
+func TestInitDefaults(t *testing.T) {
+	parent := t.TempDir()
+	out := mustRun(t, "init", "quick", "-d", parent, "--defaults")
+	if strings.Contains(out, "Chart name?") {
+		t.Error("--defaults asked a question")
+	}
+	if _, err := os.Stat(filepath.Join(parent, "quick", "Chart.yaml")); err != nil {
+		t.Errorf("no chart was written: %v", err)
+	}
+	if !strings.Contains(out, "hck new quick") {
+		t.Errorf("no equivalent command printed:\n%s", out)
+	}
+}
+
+// EOF partway through means "take the rest of the defaults", so a short
+// heredoc does not have to answer every question.
+func TestInitStopsAskingAtEOF(t *testing.T) {
+	parent := t.TempDir()
+	mustRunWith(t, "half-answered\n", "init", "-d", parent)
+	if _, err := os.Stat(filepath.Join(parent, "half-answered", "Chart.yaml")); err != nil {
+		t.Errorf("no chart was written: %v", err)
+	}
+}
+
+func TestInitWritesTheReadmeWhenAsked(t *testing.T) {
+	parent := t.TempDir()
+	mustRunWith(t, "documented\n\n\n\n\nn\ny\n", "init", "-d", parent)
+	body, err := os.ReadFile(filepath.Join(parent, "documented", "README.md"))
+	if err != nil {
+		t.Fatalf("no README: %v", err)
+	}
+	if !strings.Contains(string(body), "| Key | Type | Default | Description |") {
+		t.Error("README carries no values table")
+	}
+	if !strings.Contains(string(body), "One of: `Always`, `IfNotPresent`, `Never`.") {
+		t.Error("the table has no allowed values, so the schema was not consulted")
+	}
+}
+
+func TestInitRejectsABadName(t *testing.T) {
+	if _, err := runWith(t, "Not A Chart Name\n", "init", "-d", t.TempDir()); err == nil {
+		t.Error("want an error for a name Helm would refuse")
 	}
 }

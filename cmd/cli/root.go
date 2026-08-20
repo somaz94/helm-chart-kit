@@ -27,6 +27,7 @@ there.`,
 		SilenceErrors: true,
 	}
 	root.AddCommand(
+		newInitCmd(),
 		newNewCmd(),
 		newAddCmd(),
 		newListCmd(),

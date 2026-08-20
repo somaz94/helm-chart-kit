@@ -2,6 +2,29 @@
 
 <br/>
 
+## hck init
+
+Create a chart by answering a few questions.
+
+```bash
+hck init [chart-name] [flags]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-d, --dir` | `.` | Parent directory to create the chart in |
+| `--defaults` | `false` | Take every default and ask nothing |
+
+Every question corresponds to a flag on `hck new`, and `init` prints the equivalent command when it finishes — the questions are for the first chart, the flags are for every one after it.
+
+Enter takes the default shown in brackets. EOF partway through takes the rest of the defaults, so this is a valid way to drive it:
+
+```bash
+printf 'payments-api\nweb\n' | hck init
+```
+
+<br/>
+
 ## hck new
 
 Create a chart directory seeded with a preset's resources.
