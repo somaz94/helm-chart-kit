@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
+	"github.com/somaz94/helm-chart-kit/internal/check"
 )
 
 // run drives a fresh command tree and captures its output. NO_COLOR keeps the
@@ -47,6 +48,15 @@ func mustRunWith(t *testing.T, stdin string, args ...string) string {
 		t.Fatalf("hck %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return out
+}
+
+// writeFile overwrites a file inside a chart, for the tests that need a chart
+// in a state hck itself would never generate.
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustRun(t *testing.T, args ...string) string {
@@ -1306,5 +1316,124 @@ func TestRootHelpPointsAtTheWayIn(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("root help does not show %q", want)
 		}
+	}
+}
+
+// "hck list rules" is what a chart's .hck.yaml is written against, so every
+// rule the checker runs has to appear in it.
+func TestListRules(t *testing.T) {
+	out := mustRun(t, "list", "rules")
+	for _, r := range check.Rules() {
+		if !strings.Contains(out, r.ID) {
+			t.Errorf("hck list rules does not mention %s", r.ID)
+		}
+	}
+	if !strings.Contains(out, check.ConfigFile) {
+		t.Errorf("hck list rules does not say where to configure them:\n%s", out)
+	}
+	if strings.Contains(out, "PRESETS") {
+		t.Error("hck list rules printed the presets section")
+	}
+	if !strings.Contains(mustRun(t, "list"), "CHECK RULES") {
+		t.Error("hck list left the rules out")
+	}
+}
+
+// A chart turns a rule off in its own .hck.yaml, and the report says so — a
+// clean check over a chart with half the rules off would otherwise read as a
+// chart with nothing wrong with it.
+func TestCheckHonoursTheChartConfig(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir)
+	chartDir := filepath.Join(dir, "demo")
+	// A chart with no description trips HCK013, without needing helm.
+	writeFile(t, filepath.Join(chartDir, "Chart.yaml"), "apiVersion: v2\nname: demo\n")
+
+	out := mustRun(t, "check", "--chart", chartDir, "--no-render")
+	if !strings.Contains(out, "HCK013") {
+		t.Fatalf("HCK013 did not fire:\n%s", out)
+	}
+
+	writeFile(t, filepath.Join(chartDir, check.ConfigFile), "rules:\n  HCK013: off\n")
+	out = mustRun(t, "check", "--chart", chartDir, "--no-render")
+	// The ID still appears in the "off in" line, so look for a finding line.
+	if strings.Contains(out, "warn  HCK013") {
+		t.Errorf("HCK013 is off but reported anyway:\n%s", out)
+	}
+	if !strings.Contains(out, "no findings") {
+		t.Errorf("turning off the only finding did not leave a clean report:\n%s", out)
+	}
+	if !strings.Contains(out, "off in "+check.ConfigFile) {
+		t.Errorf("the report does not say what it skipped:\n%s", out)
+	}
+
+	// Raised to an error, the same finding fails the check.
+	writeFile(t, filepath.Join(chartDir, check.ConfigFile), "rules:\n  HCK013: error\n")
+	if _, err := run(t, "check", "--chart", chartDir, "--no-render"); err == nil {
+		t.Error("a rule raised to error did not fail the check")
+	}
+
+	// And a rule ID nobody has is an error rather than a silent no-op.
+	writeFile(t, filepath.Join(chartDir, check.ConfigFile), "rules:\n  HCK999: off\n")
+	_, err := run(t, "check", "--chart", chartDir, "--no-render")
+	if err == nil || !strings.Contains(err.Error(), "HCK999") {
+		t.Errorf("got %v, want a complaint about HCK999", err)
+	}
+}
+
+// The JSON form exists so a CI step can act on a finding rather than grep for
+// one, which means the verdict has to match the exit status.
+func TestCheckJSONFormat(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir)
+	chartDir := filepath.Join(dir, "demo")
+	writeFile(t, filepath.Join(chartDir, "Chart.yaml"), "apiVersion: v1\nname: demo\n")
+	writeFile(t, filepath.Join(chartDir, check.ConfigFile), "rules:\n  HCK013: off\n")
+
+	out := mustRun(t, "check", "--chart", chartDir, "--no-render", "--format", "json")
+	var doc struct {
+		Chart    string `json:"chart"`
+		Findings []struct {
+			Rule     string `json:"rule"`
+			Severity string `json:"severity"`
+			Where    string `json:"where"`
+			Message  string `json:"message"`
+		} `json:"findings"`
+		Errors   int      `json:"errors"`
+		Warnings int      `json:"warnings"`
+		Disabled []string `json:"disabled"`
+		OK       bool     `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if doc.Chart != "demo" || !doc.OK || doc.Errors != 0 {
+		t.Errorf("got %+v", doc)
+	}
+	if len(doc.Findings) != doc.Warnings || doc.Warnings == 0 {
+		t.Errorf("findings and counts disagree: %+v", doc)
+	}
+	if doc.Findings[0].Rule != "HCK012" || doc.Findings[0].Message == "" {
+		t.Errorf("got %+v", doc.Findings[0])
+	}
+	if len(doc.Disabled) != 1 || doc.Disabled[0] != "HCK013" {
+		t.Errorf("disabled = %v", doc.Disabled)
+	}
+
+	// --strict turns those warnings into a failure, and the document says so
+	// rather than only the exit status.
+	out, err := run(t, "check", "--chart", chartDir, "--no-render", "--format", "json", "--strict")
+	if err == nil {
+		t.Error("--strict passed a chart with warnings")
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if doc.OK {
+		t.Error("ok is true on a run that failed")
+	}
+
+	if _, err := run(t, "check", "--chart", chartDir, "--no-render", "--format", "xml"); err == nil {
+		t.Error("an unknown --format was accepted")
 	}
 }

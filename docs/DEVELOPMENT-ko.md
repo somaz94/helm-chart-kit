@@ -27,7 +27,9 @@ internal/schema     리소스 조각들로부터 values.schema.json 조립.
 internal/docs       values.yaml → Markdown 표.
 internal/chart      차트 디렉터리를 찾고 들여다보기.
 internal/scaffold   요청을 Plan 으로 바꾸고, Apply가 기록.
-internal/check      helm 으로 렌더한 뒤 자체 규칙 적용.
+internal/check      helm 으로 렌더한 뒤 자체 규칙 적용. 규칙은 HCK id 하나당
+                    항목 하나인 레지스트리라, 차트가 .hck.yaml 에서 이름으로
+                    부를 수 있음.
 ```
 
 설계의 대부분을 떠받치는 결정이 둘 있습니다:
@@ -59,6 +61,43 @@ internal/check      helm 으로 렌더한 뒤 자체 규칙 적용.
 
 <br/>
 
+## check 규칙 추가하기
+
+규칙은 `internal/check/rules.go`에 `HCK0xx` 하나당 항목 하나로 들어 있고, 그 외에 손댈 곳은 없습니다. `hck check`, `hck list rules`, 차트의 `.hck.yaml` 모두 같은 레지스트리를 읽습니다.
+
+```go
+{
+	ID: "HCK033", Severity: Warn, Scope: ObjectScope,
+	Summary: "container mounts the service account token it never uses",
+	object: containerRule(func(c map[string]any, kind string) string {
+		if ... {
+			return "the message the user reads"
+		}
+		return ""
+	}),
+},
+```
+
+`Scope`가 규칙이 언제 실행되고 무엇을 받는지 정합니다.
+
+| Scope | 읽는 대상 | 실행 시점 |
+|---|---|---|
+| `ChartScope` | 차트 디렉터리 | 항상. `--no-render`에서도 실행 |
+| `RenderScope` | helm 자신의 출력 | `Run`이 직접 보고. 클로저 없음 |
+| `ObjectScope` | 렌더된 객체 하나 | 객체마다 한 번 |
+| `SetScope` | 모든 객체를 함께 | 조합일 때만 잘못된 것을 위해 한 번 |
+
+규칙은 finding이 아니라 메시지를 반환합니다. ID와 심각도는 규칙 자신의 선언에서 실행기가 붙이므로, 규칙이 남의 ID로 보고할 수 없습니다. ID를 차트가 이름으로 부르고 사용자가 믿을 수 있는 것은 이 때문입니다.
+
+`podRule`과 `containerRule`은 파드 스펙이나 컨테이너 하나를 보는 검사를 object 스코프 규칙으로 끌어올립니다. 덕분에 규칙은 무엇이 잘못됐는지만 말하고, 그 파드에 어떻게 도달했는지는 말하지 않습니다.
+
+규칙이 공개되고 나면 두 가지는 고정됩니다.
+
+- **ID는 바뀌지 않습니다.** 차트의 `.hck.yaml`이 가리키는 대상이고, 은퇴한 ID를 재사용하면 어딘가에서 규칙 하나가 조용히 다시 켜집니다.
+- **기본 심각도는 차트가 아니라 규칙 자신의 판단입니다.** 동의하지 않는 차트는 자기 `.hck.yaml`에서 그렇게 밝힙니다. 선언이 일관적인지는 `TestRuleRegistryIsWellFormed`가 확인합니다.
+
+<br/>
+
 ## 오버레이 축
 
 플랫폼(`aws`/`gcp`/`azure`/`onprem`)과 환경(`dev`/`staging`/`prod`)은 같은 기계를 씁니다. 조각은 `templates/resources/<name>/values-<suffix>.yaml.tmpl`에 두고, `scaffold.buildOverlay`가 조립합니다.
@@ -68,7 +107,7 @@ internal/check      helm 으로 렌더한 뒤 자체 규칙 적용.
 - `TestPlatformOverlaysDoNotToggle` — 플랫폼 오버레이에 `*.enabled` 금지
 - `TestOverlayOrderDoesNotChangeTheRender` — 12쌍을 양방향으로 렌더해 비교
 
-플랫폼이 정말로 무언가를 지원하지 못한다면, 그건 `Platform.Needs`에 적을 일입니다.
+플랫폼이 정말로 무언가를 지원하지 못한다면, 그건 `Overlay.Needs`에 적을 일입니다.
 
 <br/>
 

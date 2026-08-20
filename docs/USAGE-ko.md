@@ -116,17 +116,61 @@ hck check [flags]
 | `--strict` | `false` | 경고도 실패로 취급 |
 | `--print` | `false` | 렌더된 매니페스트를 출력 |
 | `--no-render` | `false` | helm을 건너뛰고 차트 디렉터리만 읽는 규칙만 실행 |
+| `--format` | `text` | 사람이 읽으면 `text`, CI가 읽으면 `json` |
 
 ```bash
 hck check
 hck check --chart ./charts/payments-api
 hck check -f values/prod.yaml --strict
 hck check --no-render          # helm 없이도 동작
+hck check --format json        # 같은 실행, 기계가 읽는 형태
 ```
 
 `-f`를 주지 않았고 차트에 `ci/install-values.yaml`이 있으면 그 파일을 씁니다. `image.tag`가 필수인 차트는 기본값만으로 렌더되지 않습니다 — 필수로 둔 이유가 바로 그것입니다. 그래서 이 CI values 파일이 있어야 애초에 검사가 가능합니다.
 
 `hck check`는 error 지적이 하나라도 있으면 0이 아닌 코드로 종료합니다. `--strict`를 주면 경고만 있어도 마찬가지입니다.
+
+<br/>
+
+### 규칙 끄기
+
+규칙에 동의하지 않는 차트는 `Chart.yaml` 옆에 자기 `.hck.yaml`을 두고 그렇게 밝힙니다.
+
+```yaml
+rules:
+  HCK025: off      # this chart wants its CPU limits
+  HCK023: error    # and will not ship without requests
+```
+
+각 규칙은 `off`, `warn`, `error` 중 하나를 받고, ID 목록은 `hck list rules`로 볼 수 있습니다. 다음 세 가지는 의도한 동작입니다.
+
+- 없는 ID는 조용히 무시하지 않고 오류를 냅니다. 철자가 틀려서 계속 보고되는 규칙은 옳아서 계속 보고되는 규칙과 구별되지 않습니다.
+- `HCK001`은 설정할 수 없습니다. 렌더되지 않는 차트에는 더 보고할 것이 없습니다.
+- 차트가 꺼 둔 규칙은 지적 사항과 함께 출력됩니다. 그래야 깨끗한 결과를 아무도 묻지 않은 질문과 혼동하지 않습니다.
+
+이 파일은 `.helmignore`에 생성되므로 패키지에는 들어가지 않습니다.
+
+<br/>
+
+### JSON 출력
+
+`--format json`은 실행 한 번을 문서 하나로 씁니다.
+
+```json
+{
+  "chart": "payments-api",
+  "overlays": ["aws", "prod"],
+  "findings": [
+    {"rule": "HCK023", "severity": "warn", "where": "Deployment/payments-api container=app", "message": "no resource requests — ..."}
+  ],
+  "errors": 0,
+  "warnings": 1,
+  "disabled": ["HCK025"],
+  "ok": true
+}
+```
+
+`ok`는 `--strict`를 포함한 종료 코드와 일치하므로, CI는 결과를 grep하는 대신 그대로 읽으면 됩니다. 여기서 `--print`는 효과가 없습니다. JSON 문자열 안에 든 매니페스트는 읽기에도 파싱하기에도 맞지 않습니다.
 
 <br/>
 
@@ -270,12 +314,13 @@ hck docs --check               # CI 게이트
 ## hck list
 
 ```bash
-hck list              # preset과 리소스
+hck list              # preset, 리소스, check 규칙
 hck list presets
 hck list resources
+hck list rules
 ```
 
-`[crd]`가 붙은 리소스는 대상 클러스터에 없을 수도 있는 CRD나 기능 게이트가 있어야 동작합니다.
+`[crd]`가 붙은 리소스는 대상 클러스터에 없을 수도 있는 CRD나 기능 게이트가 있어야 동작합니다. `hck list rules`는 모든 `HCK0xx`를 기본 심각도와 함께 출력합니다 — 차트의 `.hck.yaml`이 가리키는 바로 그 ID입니다.
 
 <br/>
 

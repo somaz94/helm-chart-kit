@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +24,7 @@ func newCheckCmd() *cobra.Command {
 		strict      bool
 		printOutput bool
 		noRender    bool
+		format      string
 	}
 
 	cmd := &cobra.Command{
@@ -32,7 +35,15 @@ manifests that come out.
 
 Rendering uses ci/install-values.yaml when the chart has one and no -f was
 given, because a chart that requires an image tag cannot render on its
-defaults — which is the point of requiring one.`,
+defaults — which is the point of requiring one.
+
+A chart can turn a rule off or change its severity in its own .hck.yaml:
+
+    rules:
+      HCK025: off      # this chart wants its CPU limits
+      HCK023: error    # and will not ship without requests
+
+Run "hck list rules" for the rule IDs.`,
 		Args: cobra.NoArgs,
 		Example: `  hck check
   hck check --chart ./charts/payments-api
@@ -40,6 +51,7 @@ defaults — which is the point of requiring one.`,
   hck check --platform aws
   hck check --platform aws,gcp --strict
   hck check --platform aws --env prod --strict
+  hck check --format json
   hck check --print`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := chart.Find(opts.chartDir)
@@ -65,7 +77,19 @@ defaults — which is the point of requiring one.`,
 			}
 			overlays = append(overlays, envs...)
 
+			if opts.format != formatText && opts.format != formatJSON {
+				return fmt.Errorf("unknown --format %q; it takes %s or %s", opts.format, formatText, formatJSON)
+			}
+
+			// A chart's own .hck.yaml, read before the run so a typo in a rule
+			// ID is an error rather than a rule that quietly kept reporting.
+			cfg, err := check.LoadConfig(c.Dir)
+			if err != nil {
+				return err
+			}
+
 			rep, err := check.Run(c, check.Options{
+				Config:       cfg,
 				ValuesFiles:  opts.valuesFiles,
 				OverlayFiles: overlays,
 				SkipRender:   opts.noRender,
@@ -80,13 +104,18 @@ defaults — which is the point of requiring one.`,
 			out := cmd.OutOrStdout()
 			p := newPainter(out)
 
-			if opts.printOutput && rep.Rendered != "" {
-				fprintf(out, "%s\n", rep.Rendered)
+			label := c.Meta.Name
+			names := append(splitList(opts.platforms), splitList(opts.envs)...)
+			if len(names) > 0 {
+				label += " (" + strings.Join(names, " + ") + ")"
 			}
 
-			label := c.Meta.Name
-			if names := append(splitList(opts.platforms), splitList(opts.envs)...); len(names) > 0 {
-				label += " (" + strings.Join(names, " + ") + ")"
+			if opts.format == formatJSON {
+				return printReportJSON(out, c.Meta.Name, names, rep, opts.strict)
+			}
+
+			if opts.printOutput && rep.Rendered != "" {
+				fprintf(out, "%s\n", rep.Rendered)
 			}
 			fprintf(out, "%s %s\n\n", p.bold("check"), label)
 			for _, f := range rep.Findings {
@@ -96,6 +125,13 @@ defaults — which is the point of requiring one.`,
 				}
 				fprintf(out, "  %s %s  %s\n", tag, p.dim(f.Rule), f.Where)
 				fprintf(out, "        %s\n", f.Message)
+			}
+
+			// What was not looked for belongs next to what was: a clean
+			// report over a chart with half the rules off says less than it
+			// looks like it does.
+			if len(rep.Disabled) > 0 {
+				fprintf(out, "  %s\n", p.dim("off in "+check.ConfigFile+": "+strings.Join(rep.Disabled, ", ")))
 			}
 
 			errs, warns := rep.Errors(), rep.Warns()
@@ -119,7 +155,72 @@ defaults — which is the point of requiring one.`,
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "fail on warnings as well as errors")
 	cmd.Flags().BoolVar(&opts.printOutput, "print", false, "print the rendered manifests")
 	cmd.Flags().BoolVar(&opts.noRender, "no-render", false, "skip helm; run only the rules that read the chart directory")
+	cmd.Flags().StringVar(&opts.format, "format", formatText, "output format: "+formatText+" or "+formatJSON)
 	return cmd
+}
+
+// The two shapes a report comes out in. JSON exists so a CI step can act on a
+// finding rather than grep for it; the text form stays the default because it
+// is what a person reads.
+const (
+	formatText = "text"
+	formatJSON = "json"
+)
+
+// jsonReport is the machine-readable shape of a run. The field names are part
+// of the interface — a CI step that reads "ok" should keep working.
+type jsonReport struct {
+	Chart    string        `json:"chart"`
+	Overlays []string      `json:"overlays,omitempty"`
+	Findings []jsonFinding `json:"findings"`
+	Errors   int           `json:"errors"`
+	Warnings int           `json:"warnings"`
+	// Disabled names the rules the chart turned off, so a consumer can tell a
+	// clean run from an unasked question.
+	Disabled []string `json:"disabled,omitempty"`
+	// OK is the verdict, and matches the exit status: --strict makes a warning
+	// enough to fail.
+	OK bool `json:"ok"`
+}
+
+type jsonFinding struct {
+	Rule     string `json:"rule"`
+	Severity string `json:"severity"`
+	Where    string `json:"where"`
+	Message  string `json:"message"`
+}
+
+// printReportJSON writes the report as JSON and returns the same failure the
+// text path would. The rendered manifests are deliberately absent: --print is
+// for reading, and a manifest stream inside a JSON string is neither.
+func printReportJSON(out io.Writer, chartName string, overlays []string, rep *check.Report, strict bool) error {
+	errs, warns := rep.Errors(), rep.Warns()
+	doc := jsonReport{
+		Chart:    chartName,
+		Overlays: overlays,
+		Findings: make([]jsonFinding, 0, len(rep.Findings)),
+		Errors:   errs,
+		Warnings: warns,
+		Disabled: rep.Disabled,
+		OK:       errs == 0 && (!strict || warns == 0),
+	}
+	for _, f := range rep.Findings {
+		doc.Findings = append(doc.Findings, jsonFinding{
+			Rule:     f.Rule,
+			Severity: string(f.Severity),
+			Where:    f.Where,
+			Message:  f.Message,
+		})
+	}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return err
+	}
+	if !doc.OK {
+		return fmt.Errorf("check failed")
+	}
+	return nil
 }
 
 // overlayPaths resolves overlay names on one axis to the files inside a chart,

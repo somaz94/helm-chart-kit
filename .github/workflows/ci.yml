@@ -271,6 +271,69 @@ jobs:
           }
           echo "PASS: environment overlays"
 
+      # A rule a chart turned off has to actually stop reporting, and the
+      # JSON verdict has to agree with the exit status. Both are the kind of
+      # thing that looks wired up while doing nothing at all.
+      #
+      # Output is captured rather than piped into grep: grep -q closes the
+      # pipe on its first match, and under pipefail that turns a passing
+      # assertion into a failing step.
+      - name: Configure the house rules
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new ruled --dir "$workdir" >/dev/null
+          chart="$workdir/ruled"
+
+          # Runs hck check and reports its output and status without tripping
+          # set -e, since half these assertions are about a non-zero exit.
+          check() {
+            set +e
+            out=$(hck check --chart "$chart" --no-render "$@" 2>&1)
+            status=$?
+            set -e
+          }
+
+          # Every rule the checker runs has to be listed, or a chart cannot
+          # name it in its .hck.yaml.
+          listing=$(hck list rules)
+          for id in HCK013 HCK025 HCK030; do
+            [[ "$listing" == *"$id"* ]] || { echo "FAIL: $id is not listed"; exit 1; }
+          done
+
+          # Strip the description, which trips HCK013 without needing helm.
+          printf 'apiVersion: v2\nname: ruled\n' > "$chart/Chart.yaml"
+          check
+          [[ "$out" == *"HCK013"* ]] || { echo "FAIL: HCK013 did not fire"; exit 1; }
+          [ "$status" -eq 0 ] || { echo "FAIL: a warning failed the check without --strict"; exit 1; }
+
+          printf 'rules:\n  HCK013: off\n' > "$chart/.hck.yaml"
+          check
+          [[ "$out" != *"warn  HCK013"* ]] || { echo "FAIL: HCK013 is off and still reported"; exit 1; }
+          [[ "$out" == *"off in .hck.yaml"* ]] || { echo "FAIL: the report did not say what it skipped"; exit 1; }
+
+          # Raised to an error, the same finding fails the check.
+          printf 'rules:\n  HCK013: error\n' > "$chart/.hck.yaml"
+          check
+          [ "$status" -ne 0 ] || { echo "FAIL: a rule raised to error did not fail the check"; exit 1; }
+
+          # A rule ID nobody has is an error, not a silent no-op.
+          printf 'rules:\n  HCK999: off\n' > "$chart/.hck.yaml"
+          check
+          [ "$status" -ne 0 ] || { echo "FAIL: an unknown rule ID was accepted"; exit 1; }
+
+          # And the JSON verdict matches the exit status, --strict included.
+          rm "$chart/.hck.yaml"
+          check --format json
+          [ "$status" -eq 0 ] || { echo "FAIL: a passing run reported a failure"; exit 1; }
+          [[ "$out" == *'"ok": true'* ]] || { echo "FAIL: a passing run did not report ok"; exit 1; }
+
+          check --format json --strict
+          [ "$status" -ne 0 ] || { echo "FAIL: --strict passed a chart with warnings"; exit 1; }
+          [[ "$out" == *'"ok": false'* ]] || { echo "FAIL: the JSON verdict disagrees with the exit status"; exit 1; }
+          echo "PASS: rule configuration"
+
       # init has to produce exactly what the command it prints would produce.
       - name: Scaffold interactively
         run: |

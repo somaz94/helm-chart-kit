@@ -5,6 +5,9 @@
 // library. That is deliberate — the check then reports what the user's own
 // helm does, not what the version this tool happened to vendor would have
 // done, and the two diverge exactly where it matters most.
+//
+// The rules themselves live in rules.go, one entry per HCK id, so that a rule
+// is something a chart can name in its .hck.yaml and a reader can look up.
 package check
 
 import (
@@ -12,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -46,6 +48,9 @@ type Report struct {
 	Findings []Finding
 	// Rendered is the manifest stream helm produced, kept for --print.
 	Rendered string
+	// Disabled lists the rules the chart turned off, so a clean report can say
+	// what it did not look for.
+	Disabled []string
 }
 
 // Errors counts findings that fail the check.
@@ -62,6 +67,24 @@ func (r *Report) Errors() int {
 // Warns counts advisory findings.
 func (r *Report) Warns() int { return len(r.Findings) - r.Errors() }
 
+// apply runs one rule and records what it found, unless the chart turned it
+// off. The severity comes from the rule and the config, never from the check
+// itself, so a rule always reports under its own name.
+func (r *Report) apply(cfg *Config, rule Rule, run func() []hit) {
+	sev, on := cfg.severity(rule)
+	if !on {
+		return
+	}
+	for _, h := range run() {
+		r.Findings = append(r.Findings, Finding{
+			Severity: sev,
+			Rule:     rule.ID,
+			Where:    h.Where,
+			Message:  h.Message,
+		})
+	}
+}
+
 // ErrNoHelm is returned when the helm binary is not on PATH.
 var ErrNoHelm = errors.New("helm not found on PATH — hck check renders with your own helm, so it needs one installed")
 
@@ -77,12 +100,18 @@ type Options struct {
 	OverlayFiles []string
 	// SkipRender runs only the rules that read the chart directory itself.
 	SkipRender bool
+	// Config is what the chart says about the rules. Nil is the default set.
+	Config *Config
 }
 
 // Run renders the chart and applies every rule.
 func Run(c *chart.Chart, opts Options) (*Report, error) {
-	rep := &Report{}
-	rep.Findings = append(rep.Findings, chartLayoutRules(c)...)
+	cfg := opts.Config
+	rep := &Report{Disabled: cfg.Disabled()}
+
+	for _, rule := range rulesIn(ChartScope) {
+		rep.apply(cfg, rule, func() []hit { return rule.chart(c) })
+	}
 
 	if opts.SkipRender {
 		return rep, nil
@@ -107,11 +136,8 @@ func Run(c *chart.Chart, opts Options) (*Report, error) {
 
 	rendered, err := runHelm(helm, append([]string{"template", filepath.Base(c.Dir), c.Dir}, valuesArgs(vals)...))
 	if err != nil {
-		rep.Findings = append(rep.Findings, Finding{
-			Severity: Error,
-			Rule:     "HCK001",
-			Where:    "helm template",
-			Message:  firstLines(err.Error(), 12),
+		rep.apply(cfg, mustRule("HCK001"), func() []hit {
+			return []hit{{Where: "helm template", Message: firstLines(err.Error(), 12)}}
 		})
 		return rep, nil
 	}
@@ -119,109 +145,49 @@ func Run(c *chart.Chart, opts Options) (*Report, error) {
 
 	// helm lint takes paths only — passing a release name the way template
 	// does makes it lint a second, nonexistent chart and always fail.
-	if _, err := runHelm(helm, append([]string{"lint", c.Dir}, valuesArgs(vals)...)); err != nil {
-		rep.Findings = append(rep.Findings, Finding{
-			Severity: Warn,
-			Rule:     "HCK002",
-			Where:    "helm lint",
-			Message:  firstLines(err.Error(), 12),
-		})
-	}
+	rep.apply(cfg, mustRule("HCK002"), func() []hit {
+		if _, err := runHelm(helm, append([]string{"lint", c.Dir}, valuesArgs(vals)...)); err != nil {
+			return []hit{{Where: "helm lint", Message: firstLines(err.Error(), 12)}}
+		}
+		return nil
+	})
 
 	objs, err := decodeAll(rendered)
 	if err != nil {
 		return nil, err
 	}
+	// Object-major, rule-minor: everything wrong with one Deployment is read
+	// together, and within it the findings arrive in rule-ID order.
 	for _, o := range objs {
-		rep.Findings = append(rep.Findings, manifestRules(o)...)
+		for _, rule := range rulesIn(ObjectScope) {
+			rep.apply(cfg, rule, func() []hit { return rule.object(o) })
+		}
 	}
-	rep.Findings = append(rep.Findings, manifestSetRules(objs)...)
-	rep.Findings = append(rep.Findings, scalerRules(objs)...)
+	for _, rule := range rulesIn(SetScope) {
+		rep.apply(cfg, rule, func() []hit { return rule.set(objs) })
+	}
 	return rep, nil
 }
 
-// workloadKinds are the controllers that own a chart's image, resources and
-// update strategy. A Job is not one: it is a one-shot task alongside the
-// workload, not the thing the chart deploys.
-var workloadKinds = map[string]bool{
-	"Deployment":  true,
-	"StatefulSet": true,
-	"DaemonSet":   true,
-	"CronJob":     true,
-}
-
-// manifestSetRules judges the rendered set as a whole rather than one object
-// at a time.
-func manifestSetRules(objs []object) []Finding {
-	var workloads []string
-	for _, o := range objs {
-		if workloadKinds[o.Kind] {
-			workloads = append(workloads, fmt.Sprintf("%s/%s", o.Kind, o.Name))
+// rulesIn returns the rules of one scope, in ID order.
+func rulesIn(scope Scope) []Rule {
+	var out []Rule
+	for _, r := range rules {
+		if r.Scope == scope {
+			out = append(out, r)
 		}
-	}
-	if len(workloads) < 2 {
-		return nil
-	}
-	// Warn rather than Error: hck refuses to generate this, so a chart that
-	// has it came from somewhere else, and a multi-workload chart is a
-	// defensible thing for someone else to have written. --strict still
-	// fails on it, which is what keeps hck's own charts honest.
-	return []Finding{{
-		Severity: Warn,
-		Rule:     "HCK030",
-		Where:    "chart",
-		Message: fmt.Sprintf(
-			"chart renders %d primary workloads (%s); they share image, resources and updateStrategy, so one set of values cannot describe both",
-			len(workloads), strings.Join(workloads, ", ")),
-	}}
-}
-
-// scalerRules catches two controllers driving the same workload's size.
-//
-// Nothing refuses these at generation time the way a second workload is
-// refused: each is a legitimate resource to add, and it is the combination
-// that is wrong. They are only visible once the chart renders, which is why
-// they live here rather than in scaffold.
-func scalerRules(objs []object) []Finding {
-	var out []Finding
-	var hpa, scaled, vpaAuto []string
-	for _, o := range objs {
-		switch o.Kind {
-		case "HorizontalPodAutoscaler":
-			hpa = append(hpa, o.Name)
-		case "ScaledObject":
-			scaled = append(scaled, o.Name)
-		case "VerticalPodAutoscaler":
-			// Off and Initial only recommend, and coexist with an HPA. Auto
-			// and Recreate evict pods to resize them.
-			if mode := vpaUpdateMode(o); mode == "Auto" || mode == "Recreate" {
-				vpaAuto = append(vpaAuto, o.Name)
-			}
-		}
-	}
-	if len(hpa) > 0 && len(scaled) > 0 {
-		out = append(out, Finding{Severity: Warn, Rule: "HCK031", Where: "chart",
-			Message: fmt.Sprintf(
-				"chart renders both a HorizontalPodAutoscaler (%s) and a KEDA ScaledObject (%s); KEDA creates an HPA of its own, so the two fight over the replica count on every reconcile",
-				strings.Join(hpa, ", "), strings.Join(scaled, ", "))})
-	}
-	if len(hpa) > 0 && len(vpaAuto) > 0 {
-		out = append(out, Finding{Severity: Warn, Rule: "HCK032", Where: "chart",
-			Message: fmt.Sprintf(
-				"chart renders a HorizontalPodAutoscaler (%s) alongside a VerticalPodAutoscaler in an evicting update mode (%s); both read utilization and drive it in opposite directions. Set updateMode to Off or Initial, or scale the two on different resources",
-				strings.Join(hpa, ", "), strings.Join(vpaAuto, ", "))})
 	}
 	return out
 }
 
-// vpaUpdateMode reads spec.updatePolicy.updateMode, or "" if it is unset.
-func vpaUpdateMode(o object) string {
-	policy, ok := o.Spec["updatePolicy"].(map[string]any)
+// mustRule looks up a rule the code itself names. A miss is a mistake in this
+// package, not something a user can cause.
+func mustRule(id string) Rule {
+	r, ok := LookupRule(id)
 	if !ok {
-		return ""
+		panic("check: no rule " + id)
 	}
-	mode, _ := policy["updateMode"].(string)
-	return mode
+	return r
 }
 
 func nonEmpty(ss ...string) []string {
@@ -261,28 +227,6 @@ func runHelm(helm string, args []string) (string, error) {
 	return stdout.String(), nil
 }
 
-// chartLayoutRules covers what can be judged without rendering.
-func chartLayoutRules(c *chart.Chart) []Finding {
-	var out []Finding
-	if !fileExists(c.ValuesPath()) {
-		out = append(out, Finding{Severity: Warn, Rule: "HCK010", Where: "values.yaml",
-			Message: "chart has no values.yaml, so nothing about it is configurable"})
-	}
-	if !fileExists(filepath.Join(c.Dir, ".helmignore")) {
-		out = append(out, Finding{Severity: Warn, Rule: "HCK011", Where: ".helmignore",
-			Message: "no .helmignore — packaging will sweep in local files such as ci/ and editor state"})
-	}
-	if c.Meta.APIVersion != "v2" {
-		out = append(out, Finding{Severity: Warn, Rule: "HCK012", Where: "Chart.yaml",
-			Message: fmt.Sprintf("apiVersion is %q; v2 is the Helm 3 chart format", c.Meta.APIVersion)})
-	}
-	if c.Meta.Description == "" {
-		out = append(out, Finding{Severity: Warn, Rule: "HCK013", Where: "Chart.yaml",
-			Message: "description is empty — it is what a chart repository shows in its index"})
-	}
-	return out
-}
-
 // object is the slice of a rendered manifest the rules read.
 type object struct {
 	Kind     string
@@ -317,82 +261,6 @@ func decodeAll(manifests string) ([]object, error) {
 		out = append(out, o)
 	}
 	return out, nil
-}
-
-// manifestRules are the house rules that read a rendered object.
-func manifestRules(o object) []Finding {
-	podSpec, ok := podSpecOf(o)
-	if !ok {
-		return nil
-	}
-	where := fmt.Sprintf("%s/%s", o.Kind, o.Name)
-	var out []Finding
-
-	if sc, ok := podSpec["securityContext"].(map[string]any); !ok || sc["runAsNonRoot"] != true {
-		out = append(out, Finding{Severity: Warn, Rule: "HCK020", Where: where,
-			Message: "pod securityContext does not set runAsNonRoot: true"})
-	}
-
-	containers, _ := podSpec["containers"].([]any)
-	for _, ci := range containers {
-		c, ok := ci.(map[string]any)
-		if !ok {
-			continue
-		}
-		name := str(c["name"])
-		cw := where + " container=" + name
-
-		image := str(c["image"])
-		switch {
-		case image == "":
-			out = append(out, Finding{Severity: Error, Rule: "HCK021", Where: cw,
-				Message: "container has no image"})
-		case !strings.Contains(lastSegment(image), ":"):
-			out = append(out, Finding{Severity: Error, Rule: "HCK021", Where: cw,
-				Message: fmt.Sprintf("image %q has no tag, so it resolves to :latest at pull time", image)})
-		case strings.HasSuffix(image, ":latest"):
-			out = append(out, Finding{Severity: Error, Rule: "HCK022", Where: cw,
-				Message: "image tag is :latest — the deployed version becomes unknowable and rollback stops meaning anything"})
-		}
-
-		res, _ := c["resources"].(map[string]any)
-		if _, ok := res["requests"]; !ok {
-			out = append(out, Finding{Severity: Warn, Rule: "HCK023", Where: cw,
-				Message: "no resource requests — the scheduler will treat this as BestEffort and evict it first"})
-		}
-		if limits, ok := res["limits"].(map[string]any); !ok {
-			out = append(out, Finding{Severity: Warn, Rule: "HCK024", Where: cw,
-				Message: "no memory limit — a leak here takes the whole node down with it"})
-		} else if _, ok := limits["memory"]; !ok {
-			out = append(out, Finding{Severity: Warn, Rule: "HCK024", Where: cw,
-				Message: "no memory limit — a leak here takes the whole node down with it"})
-		} else if _, ok := limits["cpu"]; ok {
-			out = append(out, Finding{Severity: Warn, Rule: "HCK025", Where: cw,
-				Message: "CPU limit set — CFS throttling causes latency spikes well before the node is busy; prefer a request with no limit"})
-		}
-
-		sc, _ := c["securityContext"].(map[string]any)
-		if sc["allowPrivilegeEscalation"] != false {
-			out = append(out, Finding{Severity: Warn, Rule: "HCK026", Where: cw,
-				Message: "container securityContext does not set allowPrivilegeEscalation: false"})
-		}
-		if sc["privileged"] == true {
-			out = append(out, Finding{Severity: Error, Rule: "HCK027", Where: cw,
-				Message: "container runs privileged"})
-		}
-
-		if o.Kind == "Deployment" || o.Kind == "StatefulSet" {
-			if _, ok := c["readinessProbe"]; !ok {
-				out = append(out, Finding{Severity: Warn, Rule: "HCK028", Where: cw,
-					Message: "no readiness probe — traffic reaches the pod before it can serve it, on every rollout"})
-			}
-			if _, ok := c["livenessProbe"]; !ok {
-				out = append(out, Finding{Severity: Warn, Rule: "HCK029", Where: cw,
-					Message: "no liveness probe"})
-			}
-		}
-	}
-	return out
 }
 
 // podSpecOf digs out the pod spec of any workload kind, or reports that the
@@ -440,11 +308,6 @@ func lastSegment(image string) string {
 		return image[i+1:]
 	}
 	return image
-}
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }
 
 func firstLines(s string, n int) string {

@@ -27,7 +27,9 @@ internal/schema     Assembles values.schema.json from the resource fragments.
 internal/docs       values.yaml → Markdown table.
 internal/chart      Locating and inspecting a chart directory.
 internal/scaffold   Turns a request into a Plan; Apply writes it.
-internal/check      Renders via helm, then applies the house rules.
+internal/check      Renders via helm, then applies the house rules. The
+                    rules are a registry, one entry per HCK id, so a chart can
+                    name one in its .hck.yaml.
 ```
 
 Two decisions carry most of the design:
@@ -59,6 +61,43 @@ A template that reads another resource's values must use the parenthesised form 
 
 <br/>
 
+## Adding a check rule
+
+Rules live in `internal/check/rules.go`, one entry per `HCK0xx`, and nothing else needs touching — `hck check`, `hck list rules` and a chart's `.hck.yaml` all read the same registry.
+
+```go
+{
+	ID: "HCK033", Severity: Warn, Scope: ObjectScope,
+	Summary: "container mounts the service account token it never uses",
+	object: containerRule(func(c map[string]any, kind string) string {
+		if ... {
+			return "the message the user reads"
+		}
+		return ""
+	}),
+},
+```
+
+`Scope` decides when the rule runs and what it is handed:
+
+| Scope | Reads | Runs |
+|---|---|---|
+| `ChartScope` | the chart directory | always, `--no-render` included |
+| `RenderScope` | helm's own output | reported by `Run`, no closure |
+| `ObjectScope` | one rendered object | once per object |
+| `SetScope` | every object together | once, for a combination only wrong as a combination |
+
+A rule returns messages, never findings: the ID and severity are attached by the runner from the rule's own declaration, so a rule cannot report under somebody else's ID. That is what makes an ID something a chart can name and a user can trust.
+
+`podRule` and `containerRule` lift a check over a pod spec or a container into an object-scope rule, so the rule says what is wrong and nothing about how the pod was reached.
+
+Two things are fixed once a rule ships:
+
+- **The ID never changes.** It is what a chart's `.hck.yaml` refers to, and reusing a retired one silently turns a rule back on somewhere.
+- **The default severity is the rule's own judgement**, not a chart's. A chart that disagrees says so in its `.hck.yaml`; `TestRuleRegistryIsWellFormed` checks the declaration is coherent.
+
+<br/>
+
 ## The overlay axes
 
 Platform (`aws`/`gcp`/`azure`/`onprem`) and environment (`dev`/`staging`/`prod`) share one mechanism: fragments live at `templates/resources/<name>/values-<suffix>.yaml.tmpl` and `scaffold.buildOverlay` assembles them.
@@ -68,7 +107,7 @@ Platform (`aws`/`gcp`/`azure`/`onprem`) and environment (`dev`/`staging`/`prod`)
 - `TestPlatformOverlaysDoNotToggle` — no `*.enabled` in a platform overlay
 - `TestOverlayOrderDoesNotChangeTheRender` — all 12 pairs rendered both ways
 
-Where a platform genuinely cannot support something, that belongs in `Platform.Needs`.
+Where a platform genuinely cannot support something, that belongs in `Overlay.Needs`.
 
 <br/>
 

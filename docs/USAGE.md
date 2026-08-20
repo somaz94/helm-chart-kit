@@ -116,17 +116,61 @@ hck check [flags]
 | `--strict` | `false` | Fail on warnings as well as errors |
 | `--print` | `false` | Print the rendered manifests |
 | `--no-render` | `false` | Skip helm; run only the rules that read the chart directory |
+| `--format` | `text` | `text` for a person, `json` for a CI step |
 
 ```bash
 hck check
 hck check --chart ./charts/payments-api
 hck check -f values/prod.yaml --strict
 hck check --no-render          # no helm needed
+hck check --format json        # same run, machine-readable
 ```
 
 When no `-f` is given and the chart has `ci/install-values.yaml`, that file is used. A chart whose `image.tag` is required cannot render on its defaults — which is the point of requiring one — so the CI values file is what makes it checkable at all.
 
 `hck check` exits non-zero on any error finding, or on any finding at all under `--strict`.
+
+<br/>
+
+### Turning a rule off
+
+A chart that disagrees with a rule says so in its own `.hck.yaml`, next to `Chart.yaml`:
+
+```yaml
+rules:
+  HCK025: off      # this chart wants its CPU limits
+  HCK023: error    # and will not ship without requests
+```
+
+Every rule takes `off`, `warn` or `error`, and `hck list rules` prints the IDs. Three things are deliberate:
+
+- An ID that does not exist is an error, not a silent no-op. A misspelled rule that quietly kept reporting is indistinguishable from a rule that is right.
+- `HCK001` cannot be configured. A chart that does not render has nothing else worth reporting.
+- What the chart turned off is printed with the findings, so a clean report cannot be mistaken for a question nobody asked.
+
+The file is generated into `.helmignore`, so it never reaches a package.
+
+<br/>
+
+### JSON output
+
+`--format json` writes one document per run:
+
+```json
+{
+  "chart": "payments-api",
+  "overlays": ["aws", "prod"],
+  "findings": [
+    {"rule": "HCK023", "severity": "warn", "where": "Deployment/payments-api container=app", "message": "no resource requests — ..."}
+  ],
+  "errors": 0,
+  "warnings": 1,
+  "disabled": ["HCK025"],
+  "ok": true
+}
+```
+
+`ok` matches the exit status, `--strict` included, so a CI step can read the verdict instead of grepping for it. `--print` has no effect here — a manifest stream inside a JSON string is for neither reading nor parsing.
 
 <br/>
 
@@ -270,12 +314,13 @@ Types and allowed values come from the schema. The chart does not need a committ
 ## hck list
 
 ```bash
-hck list              # presets and resources
+hck list              # presets, resources and check rules
 hck list presets
 hck list resources
+hck list rules
 ```
 
-Resources marked `[crd]` need a CRD or feature gate the target cluster may not have.
+Resources marked `[crd]` need a CRD or feature gate the target cluster may not have. `hck list rules` prints every `HCK0xx` with its default severity — the IDs a chart's `.hck.yaml` refers to.
 
 <br/>
 

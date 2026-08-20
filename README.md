@@ -411,7 +411,23 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK031` | warn | HPA and a KEDA ScaledObject both scale the workload |
 | `HCK032` | warn | HPA alongside a VPA in an evicting update mode |
 
-Warnings pass by default; `--strict` fails on them.
+Warnings pass by default; `--strict` fails on them. `hck list rules` prints the same table with the wording `hck check` uses.
+
+A chart that disagrees with a rule says so in its own `.hck.yaml`, next to `Chart.yaml`:
+
+```yaml
+rules:
+  HCK025: off      # this chart wants its CPU limits
+  HCK023: error    # and will not ship without requests
+```
+
+Every rule takes `off`, `warn` or `error`. An ID that does not exist is an error rather than a silent no-op — the whole point of writing `HCK025` down is to stop seeing it, and a misspelling that quietly kept reporting would be indistinguishable from the rule being right. `HCK001` is the exception: a chart that does not render has nothing else worth reporting, so it cannot be configured. What a chart turned off is printed with the findings, because a clean report over a chart with half the rules off says less than it looks like it does.
+
+For CI, `--format json` reports the same run as a document with an `ok` field matching the exit status:
+
+```bash
+hck check --format json --strict
+```
 
 <br/>
 

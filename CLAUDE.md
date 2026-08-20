@@ -75,6 +75,10 @@ These are load-bearing. Breaking one is a defect, not a style choice.
 
 **A `-- ` prefix is what makes a comment a description.** `internal/docs` reads `values.yaml` through `yaml.Node` head comments, but only a line opening `-- ` starts one. Without that rule the section banners — the `# ====` blocks — would each be attributed to whatever key happened to follow them.
 
+**A check rule is a registry entry, and its ID is permanent.** `internal/check/rules.go` holds one entry per `HCK0xx`; `hck check`, `hck list rules` and a chart's `.hck.yaml` all read it. A rule returns messages, never `Finding`s — the runner attaches the ID and severity from the rule's own declaration, so a rule cannot report under somebody else's ID. That is the whole basis for a chart naming one: reusing a retired ID silently turns a rule back on in a chart that turned the old one off. `TestRuleRegistryIsWellFormed` checks each declaration carries exactly the one check its `Scope` names.
+
+**A rule a chart turned off is still reported as turned off.** `check.Report.Disabled` is printed with the findings and carried in `--format json`. A clean report over a chart with half the rules off says less than it looks like it does, and the difference between "nothing is wrong" and "nobody asked" has to survive into CI. An unknown rule ID in `.hck.yaml` is an error rather than a no-op for the same reason, and `HCK001` cannot be configured at all.
+
 **`values.schema.json` is opt-in and generated, never hand-edited.** `hck new` writes one only under `--schema`; `hck add` regenerates one that exists and never introduces one that does not. Unlike `values.yaml`, it is rebuilt whole — it is an artifact, not a document someone maintains.
 
 <br/>

@@ -6,18 +6,20 @@ import (
 	"text/tabwriter"
 
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
+	"github.com/somaz94/helm-chart-kit/internal/check"
 	"github.com/spf13/cobra"
 )
 
 func newListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:       "list [presets|resources]",
-		Short:     "List the presets and resources hck can generate",
+		Use:       "list [presets|resources|rules]",
+		Short:     "List the presets, resources and check rules hck knows",
 		Args:      cobra.OnlyValidArgs,
-		ValidArgs: []string{"presets", "resources"},
+		ValidArgs: []string{"presets", "resources", "rules"},
 		Example: `  hck list
   hck list presets
-  hck list resources`,
+  hck list resources
+  hck list rules`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			what := "all"
 			if len(args) == 1 {
@@ -52,6 +54,26 @@ func newListCmd() *cobra.Command {
 				}
 				_ = w.Flush()
 				fprintf(out, "\n  %s needs a CRD or feature the cluster may not have\n", p.yellow("[crd]"))
+			}
+
+			if what == "all" {
+				fprintf(out, "\n")
+			}
+
+			if what == "all" || what == "rules" {
+				fprintf(out, "%s\n", p.bold("CHECK RULES"))
+				w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+				for _, r := range check.Rules() {
+					sev := p.yellow(string(r.Severity))
+					if r.Severity == check.Error {
+						sev = p.red(string(r.Severity))
+					}
+					fmt.Fprintf(w, "  %s\t%s\t%s\n", r.ID, sev, r.Summary)
+				}
+				_ = w.Flush()
+				fprintf(out, "\n  Turn one off or change its severity in the chart's %s:\n", p.dim(check.ConfigFile))
+				fprintf(out, "  %s\n", p.dim("rules:"))
+				fprintf(out, "  %s\n", p.dim("  HCK025: off"))
 			}
 			return nil
 		},

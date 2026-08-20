@@ -375,7 +375,23 @@ README가 없는 차트에는 하나 만들어 줍니다. `hck docs --check`가 
 | `HCK031` | warn | HPA와 KEDA ScaledObject가 동시에 워크로드를 스케일링 |
 | `HCK032` | warn | 파드를 축출하는 update mode의 VPA가 HPA와 공존 |
 
-경고는 기본적으로 통과하고, `--strict`를 주면 실패합니다.
+경고는 기본적으로 통과하고, `--strict`를 주면 실패합니다. `hck list rules`를 실행하면 `hck check`가 쓰는 문구 그대로 같은 표를 볼 수 있습니다.
+
+규칙에 동의하지 않는 차트는 `Chart.yaml` 옆에 자기 `.hck.yaml`을 두고 그렇게 밝힙니다.
+
+```yaml
+rules:
+  HCK025: off      # this chart wants its CPU limits
+  HCK023: error    # and will not ship without requests
+```
+
+각 규칙은 `off`, `warn`, `error` 중 하나를 받습니다. 없는 ID를 적으면 조용히 무시하지 않고 오류를 냅니다. `HCK025`를 적어 두는 목적 자체가 그 지적을 그만 보는 것인데, 철자가 틀려서 계속 보고되는 상태는 규칙이 옳아서 계속 보고되는 상태와 구별되지 않기 때문입니다. `HCK001`만 예외로, 렌더되지 않는 차트에는 더 보고할 것이 없으므로 설정 대상이 아닙니다. 차트가 꺼 둔 규칙은 지적 사항과 함께 출력됩니다. 규칙 절반을 꺼 놓은 차트에서 나온 깨끗한 결과는 보이는 것만큼을 말해 주지 않기 때문입니다.
+
+CI에서는 `--format json`이 같은 실행 결과를 문서로 내놓습니다. `ok` 필드는 종료 코드와 일치합니다.
+
+```bash
+hck check --format json --strict
+```
 
 <br/>
 

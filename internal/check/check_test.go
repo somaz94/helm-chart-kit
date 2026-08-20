@@ -95,17 +95,17 @@ func deploymentWith(container map[string]any, podSecurityContext map[string]any)
 	}
 }
 
-func rules(t *testing.T, o object) map[string]Finding {
+func findingsByRule(t *testing.T, o object) map[string]Finding {
 	t.Helper()
 	out := map[string]Finding{}
-	for _, f := range manifestRules(o) {
+	for _, f := range objectRules(o) {
 		out[f.Rule] = f
 	}
 	return out
 }
 
 func TestManifestRulesCleanContainer(t *testing.T) {
-	got := rules(t, deploymentWith(map[string]any{
+	got := findingsByRule(t, deploymentWith(map[string]any{
 		"name":  "app",
 		"image": "ghcr.io/acme/app:1.2.3",
 		"resources": map[string]any{
@@ -123,7 +123,7 @@ func TestManifestRulesCleanContainer(t *testing.T) {
 }
 
 func TestManifestRulesCatchesTheUsualDefects(t *testing.T) {
-	got := rules(t, deploymentWith(map[string]any{
+	got := findingsByRule(t, deploymentWith(map[string]any{
 		"name":            "app",
 		"image":           "acme/app:latest",
 		"resources":       map[string]any{"limits": map[string]any{"cpu": "1", "memory": "1Gi"}},
@@ -150,7 +150,7 @@ func TestManifestRulesCatchesTheUsualDefects(t *testing.T) {
 }
 
 func TestManifestRulesUntaggedImage(t *testing.T) {
-	got := rules(t, deploymentWith(map[string]any{"name": "app", "image": "registry:5000/acme/app"}, nil))
+	got := findingsByRule(t, deploymentWith(map[string]any{"name": "app", "image": "registry:5000/acme/app"}, nil))
 	f, ok := got["HCK021"]
 	if !ok {
 		t.Fatal("HCK021 did not fire for an untagged image")
@@ -161,7 +161,7 @@ func TestManifestRulesUntaggedImage(t *testing.T) {
 }
 
 func TestManifestRulesMissingImage(t *testing.T) {
-	got := rules(t, deploymentWith(map[string]any{"name": "app"}, nil))
+	got := findingsByRule(t, deploymentWith(map[string]any{"name": "app"}, nil))
 	if got["HCK021"].Severity != Error {
 		t.Error("a container with no image should be an error")
 	}
@@ -184,7 +184,7 @@ func TestManifestRulesSkipProbesForJobs(t *testing.T) {
 			}},
 		}},
 	}}
-	for _, f := range manifestRules(job) {
+	for _, f := range objectRules(job) {
 		if f.Rule == "HCK028" || f.Rule == "HCK029" {
 			t.Errorf("probe rule %s fired on a Job", f.Rule)
 		}
@@ -202,7 +202,7 @@ func TestChartLayoutRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := map[string]bool{}
-	for _, f := range chartLayoutRules(c) {
+	for _, f := range chartRules(c) {
 		got[f.Rule] = true
 	}
 	for _, rule := range []string{"HCK010", "HCK011", "HCK012", "HCK013"} {
@@ -248,7 +248,7 @@ func TestManifestRulesIgnoresMalformedContainers(t *testing.T) {
 			"containers":      []any{"not-a-map"},
 		}},
 	}}
-	if got := manifestRules(o); len(got) != 0 {
+	if got := objectRules(o); len(got) != 0 {
 		t.Fatalf("a non-map container produced findings: %v", got)
 	}
 }
@@ -279,7 +279,7 @@ func TestManifestSetRulesSingleWorkloadIsClean(t *testing.T) {
 		{{Kind: "Deployment", Name: "a"}, {Kind: "Job", Name: "migrate"}},
 		{{Kind: "Service", Name: "a"}, {Kind: "ConfigMap", Name: "a"}},
 	} {
-		if got := manifestSetRules(objs); len(got) != 0 {
+		if got := setRules(objs); len(got) != 0 {
 			t.Errorf("%v produced findings: %+v", objs, got)
 		}
 	}
@@ -291,7 +291,7 @@ func TestManifestSetRulesFlagsTwoWorkloads(t *testing.T) {
 		{{Kind: "StatefulSet", Name: "a"}, {Kind: "CronJob", Name: "b"}},
 		{{Kind: "Deployment", Name: "a"}, {Kind: "Deployment", Name: "b"}},
 	} {
-		got := manifestSetRules(tc)
+		got := setRules(tc)
 		if len(got) != 1 {
 			t.Fatalf("%v produced %d findings, want 1", tc, len(got))
 		}
@@ -327,7 +327,7 @@ func TestScalerRulesQuietOnLegitimateCombinations(t *testing.T) {
 		"keda with vpa Auto":   {{Kind: "ScaledObject", Name: "a"}, off("Auto")},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := scalerRules(objs); len(got) != 0 {
+			if got := setRules(objs); len(got) != 0 {
 				t.Errorf("produced findings: %+v", got)
 			}
 		})
@@ -335,7 +335,7 @@ func TestScalerRulesQuietOnLegitimateCombinations(t *testing.T) {
 }
 
 func TestScalerRulesFlagsHPAWithKEDA(t *testing.T) {
-	got := scalerRules([]object{
+	got := setRules([]object{
 		{Kind: "HorizontalPodAutoscaler", Name: "a"},
 		{Kind: "ScaledObject", Name: "b"},
 	})
@@ -351,7 +351,7 @@ func TestScalerRulesFlagsHPAWithKEDA(t *testing.T) {
 func TestScalerRulesFlagsHPAWithEvictingVPA(t *testing.T) {
 	for _, mode := range []string{"Auto", "Recreate"} {
 		t.Run(mode, func(t *testing.T) {
-			got := scalerRules([]object{
+			got := setRules([]object{
 				{Kind: "HorizontalPodAutoscaler", Name: "a"},
 				{Kind: "VerticalPodAutoscaler", Name: "b",
 					Spec: map[string]any{"updatePolicy": map[string]any{"updateMode": mode}}},
@@ -405,4 +405,32 @@ func TestPodSpecOfReachesEveryInlinePodSpec(t *testing.T) {
 	if _, ok := podSpecOf(object{Kind: "Service"}); ok {
 		t.Error("a Service reported a pod spec")
 	}
+}
+
+// The three helpers below run one scope's rules the way Run does, so a test
+// exercises the rule through the same path a real check takes rather than
+// calling the closure inside it.
+
+func chartRules(c *chart.Chart) []Finding {
+	rep := &Report{}
+	for _, rule := range rulesIn(ChartScope) {
+		rep.apply(nil, rule, func() []hit { return rule.chart(c) })
+	}
+	return rep.Findings
+}
+
+func objectRules(o object) []Finding {
+	rep := &Report{}
+	for _, rule := range rulesIn(ObjectScope) {
+		rep.apply(nil, rule, func() []hit { return rule.object(o) })
+	}
+	return rep.Findings
+}
+
+func setRules(objs []object) []Finding {
+	rep := &Report{}
+	for _, rule := range rulesIn(SetScope) {
+		rep.apply(nil, rule, func() []hit { return rule.set(objs) })
+	}
+	return rep.Findings
 }
