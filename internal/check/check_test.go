@@ -270,3 +270,43 @@ func TestValuesArgs(t *testing.T) {
 		t.Error("nil input should yield no args")
 	}
 }
+
+func TestManifestSetRulesSingleWorkloadIsClean(t *testing.T) {
+	for _, objs := range [][]object{
+		nil,
+		{{Kind: "Deployment", Name: "a"}},
+		// A Job is a one-shot task alongside the workload, not one itself.
+		{{Kind: "Deployment", Name: "a"}, {Kind: "Job", Name: "migrate"}},
+		{{Kind: "Service", Name: "a"}, {Kind: "ConfigMap", Name: "a"}},
+	} {
+		if got := manifestSetRules(objs); len(got) != 0 {
+			t.Errorf("%v produced findings: %+v", objs, got)
+		}
+	}
+}
+
+func TestManifestSetRulesFlagsTwoWorkloads(t *testing.T) {
+	for _, tc := range [][]object{
+		{{Kind: "Deployment", Name: "a"}, {Kind: "DaemonSet", Name: "b"}},
+		{{Kind: "StatefulSet", Name: "a"}, {Kind: "CronJob", Name: "b"}},
+		{{Kind: "Deployment", Name: "a"}, {Kind: "Deployment", Name: "b"}},
+	} {
+		got := manifestSetRules(tc)
+		if len(got) != 1 {
+			t.Fatalf("%v produced %d findings, want 1", tc, len(got))
+		}
+		if got[0].Rule != "HCK030" {
+			t.Errorf("rule = %q, want HCK030", got[0].Rule)
+		}
+		// Warn, not Error: hck refuses to generate this, but a chart written
+		// elsewhere is allowed to be odd. --strict is what fails on it.
+		if got[0].Severity != Warn {
+			t.Errorf("severity = %q, want %q", got[0].Severity, Warn)
+		}
+		for _, o := range tc {
+			if !strings.Contains(got[0].Message, o.Kind+"/"+o.Name) {
+				t.Errorf("message does not name %s/%s: %s", o.Kind, o.Name, got[0].Message)
+			}
+		}
+	}
+}

@@ -125,6 +125,12 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	// --with can name a workload on top of the one the preset already brings.
+	// "hck add" has always refused that; creating the same chart in one shot
+	// used to be allowed, which is the more likely way to reach for it.
+	if err := checkSingleWorkload(resources, nil); err != nil {
+		return nil, err
+	}
 
 	dir, err := filepath.Abs(filepath.Join(opts.Parent, opts.Name))
 	if err != nil {
@@ -216,7 +222,7 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 	}
 	if !force {
 		if err := checkSingleWorkload(resources, existingTemplates); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w, or pass --force if you really mean it", err)
 		}
 	}
 
@@ -365,7 +371,20 @@ func resolve(requested []string) ([]catalog.Resource, error) {
 	return out, nil
 }
 
-// checkSingleWorkload refuses a second primary workload in one chart.
+// checkSingleWorkload refuses a chart that would end up carrying more than one
+// primary workload.
+//
+// The count is over the finished chart, not just over what is arriving: two
+// workloads named in the same command are the same defect as one landing next
+// to one already there, and both used to slip through — the old version
+// returned early whenever the chart had none yet.
+//
+// They contend for image, resources and updateStrategy with incompatible
+// shapes, and the first to be merged wins, so the chart renders and then does
+// not apply. With a values.schema.json it is worse: the schema resolves the
+// contested key by canonical order while values.yaml resolves it by merge
+// order, the two pick different owners, and helm rejects values the workload
+// actually in the chart accepts.
 func checkSingleWorkload(adding []catalog.Resource, existingTemplates []string) error {
 	present := presentResources(existingTemplates)
 	var have []string
@@ -374,17 +393,23 @@ func checkSingleWorkload(adding []catalog.Resource, existingTemplates []string) 
 			have = append(have, r.Name)
 		}
 	}
-	if len(have) == 0 {
-		return nil
-	}
+	var incoming []string
 	for _, r := range adding {
-		if r.Workload {
-			return fmt.Errorf(
-				"chart already has the %s workload; adding %s would give it two, and they contend for the same values keys with incompatible shapes. Split it into two charts, or pass --force if you really mean it",
-				strings.Join(have, " and "), r.Name)
+		if r.Workload && !present[r.Name] {
+			incoming = append(incoming, r.Name)
 		}
 	}
-	return nil
+	if len(have)+len(incoming) < 2 {
+		return nil
+	}
+	if len(have) > 0 {
+		return fmt.Errorf(
+			"chart already has the %s workload; adding %s would give it two, and they contend for the same values keys with incompatible shapes. Split it into two charts",
+			strings.Join(have, " and "), strings.Join(incoming, " and "))
+	}
+	return fmt.Errorf(
+		"%s are both primary workloads and a chart carries one; they contend for the same values keys with incompatible shapes. Split them into two charts",
+		strings.Join(incoming, " and "))
 }
 
 // presentResources maps catalog names to whether the chart carries their file.

@@ -158,6 +158,40 @@ func TestAddOutsideAChart(t *testing.T) {
 	}
 }
 
+// "hck new --with <workload>" used to build a chart carrying two of them,
+// which hck refuses to do through "hck add" and documents as impossible.
+func TestNewRefusesASecondWorkload(t *testing.T) {
+	_, err := run(t, "new", "demo", "-d", t.TempDir(), "--preset", "web", "--with", "daemonset")
+	if err == nil {
+		t.Fatal("want an error for two workloads in one chart")
+	}
+	if !strings.Contains(err.Error(), "primary workload") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// And the rendered form of that chart is reported by check, so one built
+// before the refusal existed — or by hand — does not stay invisible.
+func TestCheckFlagsTwoWorkloads(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--preset", "web")
+	dir := filepath.Join(parent, "demo")
+	// --force is the documented escape hatch, and it must still produce the
+	// chart it promises — the finding belongs to check, not to add.
+	mustRun(t, "add", "daemonset", "--chart", dir, "--force")
+
+	out := mustRun(t, "check", "--chart", dir)
+	if !strings.Contains(out, "HCK030") {
+		t.Errorf("check did not flag two workloads:\n%s", out)
+	}
+	if _, err := run(t, "check", "--chart", dir, "--strict"); err == nil {
+		t.Error("--strict passed a chart with two workloads")
+	}
+}
+
 func TestCheckRendersTheGeneratedChart(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm is not on PATH")

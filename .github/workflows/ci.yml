@@ -193,8 +193,35 @@ jobs:
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
           hck new demo --dir "$workdir"
+
+          # Adding one next to the workload already there.
           if hck add statefulset --chart "$workdir/demo"; then
-            echo "FAIL: a second workload was accepted"
+            echo "FAIL: a second workload was accepted by hck add"
+            exit 1
+          fi
+
+          # --with on top of the preset's own workload. This used to build the
+          # chart, and the chart it built rendered two controllers sharing one
+          # image and one updateStrategy.
+          if hck new two --dir "$workdir" --preset web --with daemonset; then
+            echo "FAIL: a second workload was accepted by hck new --with"
+            exit 1
+          fi
+
+          # Two arriving in the same command, into a chart that has none.
+          hck new bare --dir "$workdir" --preset cronjob
+          rm "$workdir/bare/templates/cronjob.yaml"
+          if hck add deployment daemonset --chart "$workdir/bare"; then
+            echo "FAIL: two workloads at once were accepted"
+            exit 1
+          fi
+
+          # --force is the escape hatch, and check has to report what it let
+          # through rather than the chart passing silently.
+          hck add daemonset --chart "$workdir/demo" --force
+          hck check --chart "$workdir/demo" | grep -q HCK030
+          if hck check --chart "$workdir/demo" --strict; then
+            echo "FAIL: --strict passed a chart with two workloads"
             exit 1
           fi
           echo "PASS: refused"

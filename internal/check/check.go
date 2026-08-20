@@ -125,7 +125,44 @@ func Run(c *chart.Chart, opts Options) (*Report, error) {
 	for _, o := range objs {
 		rep.Findings = append(rep.Findings, manifestRules(o)...)
 	}
+	rep.Findings = append(rep.Findings, manifestSetRules(objs)...)
 	return rep, nil
+}
+
+// workloadKinds are the controllers that own a chart's image, resources and
+// update strategy. A Job is not one: it is a one-shot task alongside the
+// workload, not the thing the chart deploys.
+var workloadKinds = map[string]bool{
+	"Deployment":  true,
+	"StatefulSet": true,
+	"DaemonSet":   true,
+	"CronJob":     true,
+}
+
+// manifestSetRules judges the rendered set as a whole rather than one object
+// at a time.
+func manifestSetRules(objs []object) []Finding {
+	var workloads []string
+	for _, o := range objs {
+		if workloadKinds[o.Kind] {
+			workloads = append(workloads, fmt.Sprintf("%s/%s", o.Kind, o.Name))
+		}
+	}
+	if len(workloads) < 2 {
+		return nil
+	}
+	// Warn rather than Error: hck refuses to generate this, so a chart that
+	// has it came from somewhere else, and a multi-workload chart is a
+	// defensible thing for someone else to have written. --strict still
+	// fails on it, which is what keeps hck's own charts honest.
+	return []Finding{{
+		Severity: Warn,
+		Rule:     "HCK030",
+		Where:    "chart",
+		Message: fmt.Sprintf(
+			"chart renders %d primary workloads (%s); they share image, resources and updateStrategy, so one set of values cannot describe both",
+			len(workloads), strings.Join(workloads, ", ")),
+	}}
 }
 
 func nonEmpty(ss ...string) []string {

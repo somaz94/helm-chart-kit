@@ -199,7 +199,7 @@ A generated chart is not neutral. These are the calls it makes, and why.
 
 **NetworkPolicy is default-deny, with DNS opened.** Both `policyTypes` are rendered with empty rule lists, which denies everything; the `kube-system` DNS egress rule is on by default because without it every hostname-based rule silently fails.
 
-**One workload per chart.** `hck add statefulset` into a chart that has a Deployment is refused: the two contend for the same values keys with incompatible shapes, so the result renders but does not apply.
+**One workload per chart.** `hck add statefulset` into a chart that has a Deployment is refused, and so is `hck new --preset web --with daemonset`: the two contend for the same values keys with incompatible shapes, so the result renders but does not apply. `hck check` reports it as `HCK030` for a chart that has it already.
 
 **`serviceAccount.automount` is off.** The token is a credential. Turn it on when the workload actually calls the API server.
 
@@ -221,6 +221,7 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK026` | warn | `allowPrivilegeEscalation` not disabled |
 | `HCK027` | error | Container runs privileged |
 | `HCK028`–`HCK029` | warn | No readiness or liveness probe on a long-running workload |
+| `HCK030` | warn | Chart renders more than one primary workload |
 
 Warnings pass by default; `--strict` fails on them.
 

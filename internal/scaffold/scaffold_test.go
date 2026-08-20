@@ -202,6 +202,62 @@ func TestPlanAddRefusesASecondWorkload(t *testing.T) {
 	}
 }
 
+// --with can name a workload on top of the one the preset brings. "hck add"
+// always refused that; "hck new" used to wave it through, which is the more
+// likely way someone reaches for a DaemonSet chart.
+func TestPlanNewRefusesTwoWorkloads(t *testing.T) {
+	for _, tc := range []struct{ preset, extra string }{
+		{"web", "daemonset"},
+		{"stateful", "cronjob"},
+		{"cronjob", "deployment"},
+	} {
+		t.Run(tc.preset+"+"+tc.extra, func(t *testing.T) {
+			_, err := PlanNew(NewOptions{
+				Parent: t.TempDir(), Name: "demo", Description: "d",
+				Version: "0.1.0", AppVersion: "1.0.0", Preset: tc.preset,
+				Extra: []string{tc.extra},
+			})
+			if err == nil {
+				t.Fatal("want an error, got nil")
+			}
+			if !strings.Contains(err.Error(), "primary workload") {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// A workload the preset already carries is not a second one.
+func TestPlanNewAllowsRedundantWith(t *testing.T) {
+	if _, err := PlanNew(NewOptions{
+		Parent: t.TempDir(), Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: "web",
+		Extra: []string{"deployment", "pvc"},
+	}); err != nil {
+		t.Fatalf("naming the preset's own workload is not a second workload: %v", err)
+	}
+}
+
+// Two workloads arriving in the same "hck add" are the same defect as one
+// arriving next to one already there. The old check returned early when the
+// chart had no workload yet, so this got through.
+func TestPlanAddRefusesTwoWorkloadsAtOnce(t *testing.T) {
+	c := newChart(t, "cronjob")
+	if err := os.Remove(c.TemplatePath("cronjob.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := PlanAdd(c, []string{"deployment", "daemonset"}, false)
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "primary workload") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if _, err := PlanAdd(c, []string{"deployment", "daemonset"}, true); err != nil {
+		t.Fatalf("--force should allow it: %v", err)
+	}
+}
+
 func TestPlanAddReportsUnmetRequirements(t *testing.T) {
 	// worker has no service, and ingress needs one.
 	c := newChart(t, "worker")

@@ -48,7 +48,7 @@ These are load-bearing. Breaking one is a defect, not a style choice.
 
 **Cross-resource values access is parenthesised.** `(.Values.autoscaling).enabled`, never `.Values.autoscaling.enabled`, because the HPA may not be in the chart. Sprig's `dig` fails here: `.Values` is a `chartutil.Values`, not a `map[string]interface{}`.
 
-**One workload per chart.** Enforced in `scaffold.checkSingleWorkload` and by `TestPresetsReferenceKnownResources`. Two workloads contend for `image`, `resources` and `updateStrategy` with incompatible shapes.
+**One workload per chart.** Enforced in `scaffold.checkSingleWorkload`, which counts the finished chart rather than what is arriving — two workloads in one `hck add`, or a `--with` on top of a preset's own, are the same defect as one landing next to one already there. `PlanNew` and `PlanAdd` both call it; `hck check` reports an existing chart as `HCK030`. Two workloads contend for `image`, `resources` and `updateStrategy` with incompatible shapes, and once the chart has a `values.schema.json` they are worse than that: the schema resolves the contested key by canonical order and `values.yaml` resolves it by merge order, so the two pick different owners and helm rejects values the workload in the chart accepts.
 
 **`image.tag` has no `appVersion` fallback.** `_helpers.tpl` calls `fail`. This is why the chart skeleton ships `ci/install-values.yaml` and why `hck check` picks it up by default.
 
