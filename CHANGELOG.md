@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.0](https://github.com/somaz94/helm-chart-kit/compare/v0.2.0...v0.3.0) (2026-08-20)
+
+### Features
+
+- add six presets, and an escape hatch for the refusals that had none ([23ba247](https://github.com/somaz94/helm-chart-kit/commit/23ba24776399ffaaee54518a815e36ba4751dc4e))
+- report a disruption budget that blocks every node drain ([103ee54](https://github.com/somaz94/helm-chart-kit/commit/103ee543c5c3c80bd5ce0f0fef57bb7b33881fb1))
+- report an unused Issuer and a Service port nothing declares ([437e6ee](https://github.com/somaz94/helm-chart-kit/commit/437e6ee132c93648139ad8606ec2930a38a2824e))
+- add Istio VirtualService, DestinationRule and AuthorizationPolicy ([b13a88c](https://github.com/somaz94/helm-chart-kit/commit/b13a88c522b8b237b4063125f22bdaddceb3e5ca))
+- add hck remove and hck sync ([f52639e](https://github.com/somaz94/helm-chart-kit/commit/f52639e4044bb9f09a12e3d9a23ad8223409bfd4))
+- make the check rules a registry a chart can configure ([4396b22](https://github.com/somaz94/helm-chart-kit/commit/4396b22cb692fe501029d9be3d9248d181666cc8))
+- group commands in help and lead with the three-command path ([2636a3d](https://github.com/somaz94/helm-chart-kit/commit/2636a3d8405168c509c9b069a2ca8c911fc32abf))
+
+### Bug Fixes
+
+- point a chart's scalers at the workload it actually renders ([6b375b1](https://github.com/somaz94/helm-chart-kit/commit/6b375b17040b3a2d2df5b1f097bc810d737183a6))
+- compare the chart skeleton in hck sync ([b5c39c0](https://github.com/somaz94/helm-chart-kit/commit/b5c39c04afe1b25c06a6189276e7de812508f10a))
+
+### Code Refactoring
+
+- collapse the two overlay axes into one catalog type ([c276d77](https://github.com/somaz94/helm-chart-kit/commit/c276d77266eab7559c0a72b5b1cd1377c9f817a1))
+
+### Documentation
+
+- add Korean translations as -ko pairs ([ba1aaa1](https://github.com/somaz94/helm-chart-kit/commit/ba1aaa1a6c2d054df9c5ed76da4729aed44eda15))
+
+### Continuous Integration
+
+- assert the renamed skipped-rules line, and cover the new escape hatches ([00fa688](https://github.com/somaz94/helm-chart-kit/commit/00fa688a42f4d28e704281c95211bb056376ef26))
+
+### Contributors
+
+- somaz
+
+<br/>
+
 ## [v0.2.0](https://github.com/somaz94/helm-chart-kit/compare/v0.1.0...v0.2.0) (2026-08-20)
 
 ### Features
