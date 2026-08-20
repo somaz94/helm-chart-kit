@@ -1,0 +1,30 @@
+{
+  "virtualService": {
+    "type": "object",
+    "description": "Istio VirtualService. Requires Istio; the Gateway it attaches to is cluster infrastructure and is deliberately not created by this chart.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the VirtualService"
+      },
+      "annotations": {
+        "type": "object",
+        "description": "Annotations"
+      },
+      "hosts": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Hosts this route answers for. Empty means the chart's own Service name."
+      },
+      "gateways": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Gateways to attach to. Empty means mesh-internal traffic only."
+      },
+      "http": {
+        "type": "array",
+        "description": "Routing rules. route defaults to this chart's own Service when left unset."
+      }
+    }
+  }
+}

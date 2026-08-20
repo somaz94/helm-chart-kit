@@ -1,0 +1,29 @@
+{{- if .Values.destinationRule.enabled -}}
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  host: {{ .Values.destinationRule.host | default (include "[[ .ChartName ]].fullname" .) }}
+  trafficPolicy:
+    tls:
+      mode: {{ .Values.destinationRule.tls.mode }}
+    {{- with .Values.destinationRule.connectionPool }}
+    connectionPool:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.destinationRule.outlierDetection }}
+    outlierDetection:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.destinationRule.loadBalancer }}
+    loadBalancer:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- with .Values.destinationRule.subsets }}
+  subsets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,42 @@
+{
+  "destinationRule": {
+    "type": "object",
+    "description": "Istio DestinationRule: how a call is made rather than where it goes. Requires Istio.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the DestinationRule"
+      },
+      "host": {
+        "type": "string",
+        "description": "Service this policy applies to. Empty means the chart's own Service."
+      },
+      "tls": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["DISABLE", "SIMPLE", "MUTUAL", "ISTIO_MUTUAL"],
+            "description": "ISTIO_MUTUAL uses the mesh's own certificates"
+          }
+        }
+      },
+      "connectionPool": {
+        "type": "object",
+        "description": "Connection limits, so one slow upstream does not absorb every connection the caller has"
+      },
+      "outlierDetection": {
+        "type": "object",
+        "description": "Eject an endpoint that keeps returning 5xx"
+      },
+      "loadBalancer": {
+        "type": "object",
+        "description": "Load balancer policy, e.g. {simple: LEAST_REQUEST}"
+      },
+      "subsets": {
+        "type": "array",
+        "description": "Named subsets, for routing a VirtualService at one version"
+      }
+    }
+  }
+}

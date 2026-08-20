@@ -48,11 +48,11 @@ updated payments-api
 
 | | `helm create` | `hck` |
 |---|---|---|
-| **Resources it can emit** | 6, fixed | 29, composable |
+| **Resources it can emit** | 6, fixed | 32, composable |
 | **Adding one to an existing chart** | — | `hck add <resource>` |
 | **`values.yaml` on add** | — | Appended, existing bytes untouched |
 | **Documented values** | Sparse | Every key carries the reason it exists |
-| **Gateway API, ServiceMonitor, ExternalSecret** | — | Yes |
+| **Gateway API, Istio, ServiceMonitor, ExternalSecret** | — | Yes |
 | **Presets** | One shape | `web`, `worker`, `cronjob`, `stateful`, `daemon` |
 | **Platform values** | None | `aws`, `gcp`, `azure`, `onprem` overlays |
 | **Environment values** | None | `dev`, `staging`, `prod` overlays |

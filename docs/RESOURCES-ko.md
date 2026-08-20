@@ -49,6 +49,9 @@
 | `issuer` | `cert-manager.io/v1` | `issuer` | 네임스페이스 단위. 여러 차트가 ACME 계정을 공유한다면 ClusterIssuer가 낫습니다. |
 | `referencegrant` | `gateway.networking.k8s.io/v1beta1` | `referenceGrant` | 다른 네임스페이스의 HTTPRoute가 이 Service에 닿게 허용합니다. |
 | `scaledjob` | `keda.sh/v1alpha1` | `scaledJob` | 큐 항목당 Job 하나. 한꺼번에 몰리는 무거운 작업에 적합합니다. |
+| `virtualservice` | `networking.istio.io/v1` | `virtualService` | Istio 필요. `route`는 이 차트의 Service가 기본값. Gateway는 클러스터 인프라라 여기서 만들지 않습니다. |
+| `destinationrule` | `networking.istio.io/v1` | `destinationRule` | Istio 필요. 커넥션 풀 상한과 이상 엔드포인트 축출. 기본값은 `ISTIO_MUTUAL` — 여기서 `DISABLE`로 두면 STRICT PeerAuthentication이 거부합니다. |
+| `authorizationpolicy` | `security.istio.io/v1` | `authorizationPolicy` | Istio 필요. `networkpolicy`의 L7 쪽 절반. 규칙이 빈 `ALLOW`는 전부 거부이며, 그것이 의도된 동작입니다. |
 | `grafanadashboard` | `v1` | `grafanaDashboard` | Grafana 사이드카가 읽는 ConfigMap. 라벨이 틀리면 조용히 실패합니다. `templated`는 꺼짐 — Grafana 자체의 `{{ }}` 범례는 Helm 템플릿이 아닙니다. |
 | `tests` | `v1` | `tests` | Service를 호출하는 `helm test` hook. |
 
@@ -56,7 +59,7 @@
 
 ## 리소스 간 의존 관계
 
-`ingress`, `httproute`, `servicemonitor`, `tests`는 `service`가 필요합니다. 모든 workload는 `serviceaccount`가 필요하고, `rbac`도 그렇습니다.
+`ingress`, `httproute`, `servicemonitor`, `virtualservice`, `destinationrule`, `tests`는 `service`가 필요합니다. 모든 workload는 `serviceaccount`가 필요하고, `rbac`도 그렇습니다.
 
 `hck add`는 충족되지 않은 의존성과 그걸 고치는 명령을 **보고만** 합니다. 대신 추가해 주지는 않습니다 — 차트는 어디까지나 사용자가 책임지는 것이고, 요청하지도 않은 Service를 조용히 만들어 주는 도구는 알려주는 도구보다 이해하기 어렵기 때문입니다.
 

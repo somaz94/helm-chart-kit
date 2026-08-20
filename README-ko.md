@@ -48,11 +48,11 @@ updated payments-api
 
 | | `helm create` | `hck` |
 |---|---|---|
-| **만들 수 있는 리소스** | 6개 고정 | 29개, 조합 가능 |
+| **만들 수 있는 리소스** | 6개 고정 | 32개, 조합 가능 |
 | **기존 차트에 추가** | — | `hck add <resource>` |
 | **추가 시 `values.yaml`** | — | 덧붙임, 기존 바이트 그대로 |
 | **값 설명** | 거의 없음 | 모든 키에 그 키가 있는 이유가 적혀 있음 |
-| **Gateway API, ServiceMonitor, ExternalSecret** | — | 있음 |
+| **Gateway API, Istio, ServiceMonitor, ExternalSecret** | — | 있음 |
 | **preset** | 한 가지 형태 | `web`, `worker`, `cronjob`, `stateful`, `daemon` |
 | **플랫폼별 값** | 없음 | `aws`, `gcp`, `azure`, `onprem` 오버레이 |
 | **환경별 값** | 없음 | `dev`, `staging`, `prod` 오버레이 |

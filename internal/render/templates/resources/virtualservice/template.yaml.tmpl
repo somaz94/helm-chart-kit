@@ -1,0 +1,46 @@
+{{- if .Values.virtualService.enabled -}}
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+  {{- with .Values.virtualService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  hosts:
+    {{- if .Values.virtualService.hosts }}
+    {{- toYaml .Values.virtualService.hosts | nindent 4 }}
+    {{- else }}
+    - {{ include "[[ .ChartName ]].fullname" . }}
+    {{- end }}
+  {{- with .Values.virtualService.gateways }}
+  gateways:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  http:
+    {{- range .Values.virtualService.http }}
+    - {{- with .match }}
+      match:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      route:
+        {{- if .route }}
+        {{- toYaml .route | nindent 8 }}
+        {{- else }}
+        - destination:
+            host: {{ include "[[ .ChartName ]].fullname" $ }}
+            port:
+              number: {{ $.Values.service.port }}
+        {{- end }}
+      {{- with .timeout }}
+      timeout: {{ . }}
+      {{- end }}
+      {{- with .retries }}
+      retries:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+{{- end }}

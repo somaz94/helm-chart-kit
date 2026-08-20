@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -454,3 +457,33 @@ func enabledPaths(m map[string]any, prefix []string) []string {
 	}
 	return out
 }
+
+// Both READMEs claim a number of generatable resources, in a table whose whole
+// point is the comparison. A number that quietly falls behind the catalog is
+// the one kind of documentation error nobody reads carefully enough to catch,
+// so it is checked rather than trusted.
+func TestTheReadmeResourceCountIsTrue(t *testing.T) {
+	want := len(Resources())
+	for _, readme := range []string{"../../README.md", "../../README-ko.md"} {
+		raw, err := os.ReadFile(readme)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The row reads "| 6, fixed | 32, composable |" in English and
+		// "| 6개 고정 | 32개, 조합 가능 |" in Korean; the count is the first
+		// number after the "6" that opens the helm create column.
+		m := readmeCountRE.FindSubmatch(raw)
+		if m == nil {
+			t.Fatalf("%s no longer states a resource count in the comparison table", readme)
+		}
+		got, err := strconv.Atoi(string(m[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("%s says hck emits %d resources, the catalog has %d", readme, got, want)
+		}
+	}
+}
+
+var readmeCountRE = regexp.MustCompile(`\| 6(?:, fixed|개 고정) \| (\d+)`)

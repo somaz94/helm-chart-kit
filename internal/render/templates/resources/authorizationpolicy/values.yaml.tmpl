@@ -1,0 +1,26 @@
+# =============================================================================
+# Istio AuthorizationPolicy
+#
+# Requires Istio. The L7 half of what networkPolicy does at L3: who may call
+# this workload, on which paths and methods.
+# =============================================================================
+authorizationPolicy:
+  # -- Create the AuthorizationPolicy
+  enabled: false
+  # -- ALLOW with a rule list denies everything the list does not name, which
+  # is the posture worth having. DENY is the opposite and is evaluated first,
+  # so a DENY policy overrides every ALLOW that would have matched.
+  action: ALLOW
+  # -- Who may call this workload. An empty list under ALLOW denies everything
+  # — a deliberate lockdown, not a mistake, and Istio treats it as such.
+  # principals are the caller's SPIFFE identity and need mesh mTLS to mean
+  # anything; a namespace or an IP block does not.
+  rules: []
+  #  - from:
+  #      - source:
+  #          principals:
+  #            - cluster.local/ns/gateway-system/sa/ingressgateway
+  #    to:
+  #      - operation:
+  #          methods: [GET, POST]
+  #          paths: ["/api/*"]

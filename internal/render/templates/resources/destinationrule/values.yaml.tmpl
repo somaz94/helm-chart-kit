@@ -1,0 +1,37 @@
+# =============================================================================
+# Istio DestinationRule
+#
+# Requires Istio. This is the half of Istio routing that decides how a call is
+# made rather than where it goes: pool limits, outlier ejection, and whether
+# the hop is encrypted.
+# =============================================================================
+destinationRule:
+  # -- Create the DestinationRule
+  enabled: false
+  # -- Service this policy applies to. Defaults to the chart's own Service.
+  host: ""
+  tls:
+    # -- ISTIO_MUTUAL uses the mesh's own certificates. DISABLE turns the hop
+    # into plaintext, which a PeerAuthentication in STRICT mode then rejects —
+    # the two are set in different places and only fail together.
+    mode: ISTIO_MUTUAL
+  # -- Connection limits. Without them one slow upstream absorbs every
+  # connection the caller has and the failure spreads backwards.
+  connectionPool:
+    tcp:
+      maxConnections: 100
+    http:
+      http1MaxPendingRequests: 100
+      maxRequestsPerConnection: 0
+  # -- Eject an endpoint that keeps returning 5xx. baseEjectionTime is a
+  # minimum: Istio multiplies it by the number of times the host has been
+  # ejected, so a flapping pod is removed for longer each time.
+  outlierDetection:
+    consecutive5xxErrors: 5
+    interval: 10s
+    baseEjectionTime: 30s
+    maxEjectionPercent: 50
+  # -- Load balancer policy, e.g. {simple: LEAST_REQUEST}
+  loadBalancer: {}
+  # -- Named subsets, for routing a VirtualService at one version
+  subsets: []

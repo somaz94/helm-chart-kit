@@ -1,0 +1,34 @@
+# =============================================================================
+# Istio VirtualService
+#
+# Requires Istio. The Gateway a VirtualService attaches to is cluster
+# infrastructure and is deliberately not created by this chart — the same
+# boundary the Gateway API HTTPRoute draws.
+# =============================================================================
+virtualService:
+  # -- Create the VirtualService
+  enabled: false
+  # -- Annotations
+  annotations: {}
+  # -- Hosts this route answers for. Left empty it is the chart's own Service
+  # name, which is the in-mesh route; an external hostname belongs here only
+  # together with a gateway.
+  hosts: []
+  # -- Gateways to attach to. Empty means mesh-internal traffic only, which is
+  # what a service other services call wants.
+  gateways: []
+  # -- Routing rules. route defaults to this chart's own Service, so a rule
+  # only has to say what is different about it.
+  http:
+    - match:
+        - uri:
+            prefix: /
+      # -- Per-try timeout for the whole request. Istio has no default, so a
+      # slow upstream holds a connection until the client gives up.
+      timeout: 15s
+      retries:
+        attempts: 2
+        perTryTimeout: 5s
+        # Only what is safe to repeat. Retrying a 5xx that already applied a
+        # write is how one failed request becomes three.
+        retryOn: connect-failure,refused-stream,unavailable

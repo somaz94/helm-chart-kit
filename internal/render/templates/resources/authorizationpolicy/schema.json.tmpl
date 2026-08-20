@@ -1,0 +1,21 @@
+{
+  "authorizationPolicy": {
+    "type": "object",
+    "description": "Istio AuthorizationPolicy: the L7 half of what networkPolicy does at L3. Requires Istio.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the AuthorizationPolicy"
+      },
+      "action": {
+        "type": "string",
+        "enum": ["ALLOW", "DENY", "AUDIT", "CUSTOM"],
+        "description": "ALLOW with a rule list denies everything the list does not name. DENY is evaluated first and overrides a matching ALLOW."
+      },
+      "rules": {
+        "type": "array",
+        "description": "Who may call this workload. Empty under ALLOW denies everything, which Istio treats as a deliberate lockdown."
+      }
+    }
+  }
+}

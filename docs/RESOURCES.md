@@ -49,6 +49,9 @@ Every preset carries exactly one workload. That is enforced by a test, not a con
 | `issuer` | `cert-manager.io/v1` | `issuer` | Namespaced. Prefer a ClusterIssuer when charts share an ACME account. |
 | `referencegrant` | `gateway.networking.k8s.io/v1beta1` | `referenceGrant` | Lets an HTTPRoute in another namespace reach this Service. |
 | `scaledjob` | `keda.sh/v1alpha1` | `scaledJob` | One Job per queue item, for bursty expensive work. |
+| `virtualservice` | `networking.istio.io/v1` | `virtualService` | Needs Istio. `route` defaults to this chart's Service. The Gateway is cluster infrastructure and is not created here. |
+| `destinationrule` | `networking.istio.io/v1` | `destinationRule` | Needs Istio. Pool limits and outlier ejection. `ISTIO_MUTUAL` by default — `DISABLE` here is what a STRICT PeerAuthentication then rejects. |
+| `authorizationpolicy` | `security.istio.io/v1` | `authorizationPolicy` | Needs Istio. The L7 half of `networkpolicy`. `ALLOW` with an empty rule list denies everything, deliberately. |
 | `grafanadashboard` | `v1` | `grafanaDashboard` | ConfigMap the Grafana sidecar reads. Wrong label fails silently. `templated` is off: Grafana's own `{{ }}` legends are not Helm templates. |
 | `tests` | `v1` | `tests` | `helm test` hook that dials the Service. |
 
@@ -56,7 +59,7 @@ Every preset carries exactly one workload. That is enforced by a test, not a con
 
 ## Requirements between resources
 
-`ingress`, `httproute`, `servicemonitor` and `tests` need a `service`. Every workload needs a `serviceaccount`. `rbac` needs one too.
+`ingress`, `httproute`, `servicemonitor`, `virtualservice`, `destinationrule` and `tests` need a `service`. Every workload needs a `serviceaccount`. `rbac` needs one too.
 
 `hck add` reports an unmet requirement and the command that fixes it. It does not add it for you — a chart is a thing you are responsible for, and a tool that quietly adds a Service you did not ask for is harder to reason about than one that tells you.
 

@@ -32,3 +32,18 @@ scaledObject:
 scaledJob:
   enabled: true
   triggers: [{type: cron, metadata: {timezone: UTC, start: "0 6 * * *", end: "0 20 * * *", desiredReplicas: "1"}}]
+virtualService: {enabled: true}
+destinationRule: {enabled: true}
+# An empty rule list under ALLOW is a deliberate lockdown, so the fixture names
+# a caller instead: a policy that denies everything renders but proves nothing
+# about the rule shape.
+authorizationPolicy:
+  enabled: true
+  rules:
+    - from:
+        - source:
+            principals: [cluster.local/ns/gateway-system/sa/ingressgateway]
+      to:
+        - operation:
+            methods: [GET]
+            paths: ["/api/*"]
