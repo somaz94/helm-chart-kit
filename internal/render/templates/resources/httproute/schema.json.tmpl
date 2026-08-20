@@ -1,0 +1,38 @@
+{
+  "httpRoute": {
+    "type": "object",
+    "description": "Gateway API HTTPRoute. Requires the Gateway API CRDs and a Gateway the route can attach to; the Gateway itself is cluster infrastructure and is deliberately not created by this chart.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the HTTPRoute"
+      },
+      "annotations": {
+        "type": "object",
+        "description": "Annotations"
+      },
+      "parentRefs": {
+        "type": "array",
+        "description": "Gateways this route attaches to. namespace is required whenever the Gateway lives outside the release namespace.",
+        "items": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "namespace": { "type": "string" },
+            "sectionName": { "type": "string" }
+          }
+        }
+      },
+      "hostnames": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Hostnames matched by the route"
+      },
+      "rules": {
+        "type": "array",
+        "description": "Routing rules. backendRefs defaults to this chart's own Service when left unset."
+      }
+    }
+  }
+}

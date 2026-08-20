@@ -1,0 +1,51 @@
+{
+  "metrics": {
+    "type": "object",
+    "description": "Prometheus Operator scrape configuration",
+    "properties": {
+      "serviceMonitor": {
+        "type": "object",
+        "description": "ServiceMonitor. additionalLabels usually has to carry whatever label the Prometheus resource selects ServiceMonitors by — without it the object is created and quietly never scraped.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Create the ServiceMonitor"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace to create it in. Empty uses the release namespace."
+          },
+          "additionalLabels": {
+            "type": "object",
+            "description": "Labels the Prometheus resource selects on"
+          },
+          "port": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the Service port to scrape"
+          },
+          "path": {
+            "type": "string",
+            "description": "Metrics path"
+          },
+          "interval": {
+            "type": "string",
+            "description": "Scrape interval, as a Prometheus duration"
+          },
+          "scrapeTimeout": {
+            "type": "string",
+            "description": "Scrape timeout. Must stay below interval."
+          },
+          "relabelings": {
+            "type": "array",
+            "description": "Relabel rules applied before the scrape"
+          },
+          "metricRelabelings": {
+            "type": "array",
+            "description": "Relabel rules applied to scraped samples"
+          }
+        }
+      }
+    }
+  }
+}

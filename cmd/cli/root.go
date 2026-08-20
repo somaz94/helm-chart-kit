@@ -31,6 +31,7 @@ there.`,
 		newAddCmd(),
 		newListCmd(),
 		newCheckCmd(),
+		newSchemaCmd(),
 		newVersionCmd(),
 	)
 	return root

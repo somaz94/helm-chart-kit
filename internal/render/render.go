@@ -90,10 +90,24 @@ func ResourceValues(resource string, d Data) ([]byte, error) {
 	return renderPath(path.Join("templates/resources", resource, "values.yaml.tmpl"), d)
 }
 
+// ResourceSchema renders the values.schema.json fragment for one catalog
+// resource. The fragment is a JSON object mapping each top-level values key
+// the resource owns to the schema for it; internal/schema assembles the
+// fragments into the chart's values.schema.json.
+func ResourceSchema(resource string, d Data) ([]byte, error) {
+	return renderPath(path.Join("templates/resources", resource, "schema.json.tmpl"), d)
+}
+
+// BaseSchema renders the schema fragment for the keys every chart carries,
+// independent of which resources it has.
+func BaseSchema(d Data) ([]byte, error) {
+	return renderPath("templates/schema/base.json.tmpl", d)
+}
+
 // HasResource reports whether the embedded set carries templates for a name.
 // It backs the test that keeps the catalog and the template tree in step.
 func HasResource(resource string) bool {
-	for _, f := range []string{"template.yaml.tmpl", "values.yaml.tmpl"} {
+	for _, f := range []string{"template.yaml.tmpl", "values.yaml.tmpl", "schema.json.tmpl"} {
 		if _, err := files.Open(path.Join("templates/resources", resource, f)); err != nil {
 			return false
 		}

@@ -21,9 +21,10 @@ type Resource struct {
 	APIVersion string
 	// ValuesKeys are the top-level values.yaml keys this resource
 	// contributes, in the order its fragment declares them. The merge itself
-	// reads the fragment rather than this list, so nothing at runtime would
-	// notice the two disagreeing — TestValuesKeysMatchTheTemplates compares
-	// them instead.
+	// reads the fragment rather than this list, so the two are kept honest by
+	// a test instead: TestValuesKeysMatchTheTemplates compares this against
+	// both values.yaml.tmpl and schema.json.tmpl, and every key a resource
+	// contributes has to appear in all three.
 	ValuesKeys []string
 	// Requires names resources that must exist for this one to render. "hck
 	// add" reports them rather than pulling them in silently.

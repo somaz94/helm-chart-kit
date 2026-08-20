@@ -52,7 +52,7 @@ Every preset carries exactly one workload. That is enforced by a test, not a con
 
 ## Adding a resource to hck itself
 
-1. Create `internal/render/templates/resources/<name>/` with `template.yaml.tmpl` and `values.yaml.tmpl`. The generation layer uses `[[ ]]` delimiters so Helm's `{{ }}` passes through untouched.
-2. Add the entry to `resources` in `internal/catalog/catalog.go`.
+1. Create `internal/render/templates/resources/<name>/` with `template.yaml.tmpl`, `values.yaml.tmpl` and `schema.json.tmpl`. The generation layer uses `[[ ]]` delimiters so Helm's `{{ }}` passes through untouched.
+2. Add the entry to `resources` in `internal/catalog/catalog.go`, including its `ValuesKeys`.
 
-The two are cross-checked in both directions by tests, so adding one without the other fails the build. See [DEVELOPMENT.md](DEVELOPMENT.md).
+The catalog, the values fragment and the schema fragment are cross-checked against each other by tests, so declaring a resource — or one of its values keys — in only some of them fails the build. See [DEVELOPMENT.md](DEVELOPMENT.md).

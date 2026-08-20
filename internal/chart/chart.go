@@ -71,6 +71,31 @@ func Load(dir string) (*Chart, error) {
 // ValuesPath is the chart's values.yaml.
 func (c *Chart) ValuesPath() string { return filepath.Join(c.Dir, "values.yaml") }
 
+// SchemaPath is the chart's values.schema.json.
+func (c *Chart) SchemaPath() string { return filepath.Join(c.Dir, "values.schema.json") }
+
+// HasSchema reports whether the chart carries a values.schema.json. "hck add"
+// regenerates one that exists and does not introduce one that does not: a
+// schema is opt-in, because Helm validates against it on every render and an
+// unwanted one only has downside.
+func (c *Chart) HasSchema() bool {
+	_, err := os.Stat(c.SchemaPath())
+	return err == nil
+}
+
+// Schema reads values.schema.json. A chart without one yields no bytes and no
+// error.
+func (c *Chart) Schema() ([]byte, error) {
+	raw, err := os.ReadFile(c.SchemaPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read values.schema.json: %w", err)
+	}
+	return raw, nil
+}
+
 // TemplatePath resolves a path relative to the chart's templates directory.
 func (c *Chart) TemplatePath(rel string) string {
 	return filepath.Join(c.Dir, "templates", filepath.FromSlash(rel))

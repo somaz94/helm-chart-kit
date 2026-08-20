@@ -1,0 +1,24 @@
+{
+  "networkPolicy": {
+    "type": "object",
+    "description": "Default-deny NetworkPolicy with explicit ingress and egress rules. Empty rule lists deny all traffic in that direction.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the NetworkPolicy"
+      },
+      "allowDNS": {
+        "type": "boolean",
+        "description": "Emit the kube-system DNS egress rule. Leave on unless the workload genuinely never resolves a name."
+      },
+      "ingress": {
+        "type": "array",
+        "description": "Inbound rules, appended verbatim"
+      },
+      "egress": {
+        "type": "array",
+        "description": "Outbound rules, appended verbatim after the DNS rule"
+      }
+    }
+  }
+}

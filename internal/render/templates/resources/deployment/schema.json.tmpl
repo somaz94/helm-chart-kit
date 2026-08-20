@@ -1,0 +1,139 @@
+{
+  "replicaCount": {
+    "type": "integer",
+    "minimum": 0,
+    "description": "Number of pod replicas. Ignored when autoscaling.enabled is true."
+  },
+  "revisionHistoryLimit": {
+    "type": "integer",
+    "minimum": 0,
+    "description": "ReplicaSets kept for rollback"
+  },
+  "updateStrategy": {
+    "type": "object",
+    "description": "Rollout strategy",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": ["RollingUpdate", "Recreate"]
+      },
+      "rollingUpdate": {
+        "type": "object"
+      }
+    }
+  },
+  "terminationGracePeriodSeconds": {
+    "type": "integer",
+    "minimum": 0,
+    "description": "Seconds a pod gets to shut down before SIGKILL"
+  },
+  "priorityClassName": {
+    "type": "string",
+    "description": "PriorityClass for the pods"
+  },
+  "image": {
+    "type": "object",
+    "description": "Container image",
+    "required": ["repository", "tag"],
+    "properties": {
+      "repository": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Image repository, without the tag"
+      },
+      "pullPolicy": {
+        "type": "string",
+        "enum": ["Always", "IfNotPresent", "Never"],
+        "description": "Image pull policy"
+      },
+      "tag": {
+        "type": "string",
+        "description": "Image tag. Required at render time — _helpers.tpl calls fail when it is empty, on purpose: falling back to appVersion is how a stale image reaches production."
+      }
+    }
+  },
+  "imagePullSecrets": {
+    "type": "array",
+    "description": "Secrets used to pull from a private registry"
+  },
+  "containerPort": {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": 65535,
+    "description": "Port the container listens on"
+  },
+  "command": {
+    "type": "array",
+    "items": { "type": "string" },
+    "description": "Override the image entrypoint"
+  },
+  "args": {
+    "type": "array",
+    "items": { "type": "string" },
+    "description": "Override the image arguments"
+  },
+  "env": {
+    "type": "array",
+    "description": "Environment variables, in Kubernetes list form"
+  },
+  "envFrom": {
+    "type": "array",
+    "description": "ConfigMap and Secret references mounted as environment"
+  },
+  "podAnnotations": {
+    "type": "object",
+    "description": "Annotations added to pods"
+  },
+  "podLabels": {
+    "type": "object",
+    "description": "Labels added to pods, on top of the selector labels"
+  },
+  "podSecurityContext": {
+    "type": "object",
+    "description": "Pod-level security context. Defaults to the restricted Pod Security Standard."
+  },
+  "securityContext": {
+    "type": "object",
+    "description": "Container-level security context"
+  },
+  "livenessProbe": {
+    "type": "object",
+    "description": "Liveness probe"
+  },
+  "readinessProbe": {
+    "type": "object",
+    "description": "Readiness probe"
+  },
+  "startupProbe": {
+    "type": "object",
+    "description": "Startup probe. Set this for slow-booting workloads so the liveness probe does not kill the pod before it has finished starting."
+  },
+  "resources": {
+    "type": "object",
+    "description": "Compute resources. A CPU limit is deliberately absent from the defaults: CFS throttling causes latency spikes long before the node is under pressure."
+  },
+  "nodeSelector": {
+    "type": "object",
+    "description": "Node labels the pods must match"
+  },
+  "affinity": {
+    "type": "object",
+    "description": "Affinity rules"
+  },
+  "tolerations": {
+    "type": "array",
+    "description": "Tolerations"
+  },
+  "topologySpreadConstraints": {
+    "type": "array",
+    "description": "Spread pods across zones or nodes"
+  },
+  "volumes": {
+    "type": "array",
+    "description": "Volumes added to the pod"
+  },
+  "volumeMounts": {
+    "type": "array",
+    "description": "Volume mounts added to the container"
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "updateStrategy": {
+    "type": "object",
+    "description": "Rollout strategy",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": ["RollingUpdate", "OnDelete"]
+      },
+      "rollingUpdate": {
+        "type": "object"
+      }
+    }
+  },
+  "image": {
+    "type": "object",
+    "description": "Container image",
+    "required": ["repository", "tag"],
+    "properties": {
+      "repository": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Image repository, without the tag"
+      },
+      "pullPolicy": {
+        "type": "string",
+        "enum": ["Always", "IfNotPresent", "Never"],
+        "description": "Image pull policy"
+      },
+      "tag": {
+        "type": "string",
+        "description": "Image tag. Required at render time — _helpers.tpl calls fail when it is empty."
+      }
+    }
+  },
+  "imagePullSecrets": {
+    "type": "array",
+    "description": "Secrets used to pull from a private registry"
+  },
+  "hostNetwork": {
+    "type": "boolean",
+    "description": "Share the node network namespace. Needed by node agents that bind a host port or read host-level network state."
+  },
+  "env": {
+    "type": "array",
+    "description": "Environment variables, in Kubernetes list form"
+  },
+  "podAnnotations": {
+    "type": "object",
+    "description": "Annotations added to pods"
+  },
+  "podLabels": {
+    "type": "object",
+    "description": "Labels added to pods, on top of the selector labels"
+  },
+  "podSecurityContext": {
+    "type": "object",
+    "description": "Pod-level security context"
+  },
+  "securityContext": {
+    "type": "object",
+    "description": "Container-level security context"
+  },
+  "resources": {
+    "type": "object",
+    "description": "Compute resources"
+  },
+  "nodeSelector": {
+    "type": "object",
+    "description": "Node labels the pods must match"
+  },
+  "volumes": {
+    "type": "array",
+    "description": "Volumes added to the pod"
+  },
+  "volumeMounts": {
+    "type": "array",
+    "description": "Volume mounts added to the container"
+  },
+  "tolerations": {
+    "type": "array",
+    "description": "A DaemonSet is expected to cover every node, control-plane nodes included. Trim this list to keep it off a node class."
+  }
+}

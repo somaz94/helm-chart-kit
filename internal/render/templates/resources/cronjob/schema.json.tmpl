@@ -1,0 +1,118 @@
+{
+  "cronjob": {
+    "type": "object",
+    "description": "CronJob schedule and history",
+    "properties": {
+      "schedule": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Cron schedule"
+      },
+      "timeZone": {
+        "type": "string",
+        "description": "IANA time zone the schedule is read in. Without it the schedule follows whatever the kube-controller-manager is set to."
+      },
+      "concurrencyPolicy": {
+        "type": "string",
+        "enum": ["Allow", "Forbid", "Replace"],
+        "description": "Forbid skips a run while the previous one is still going; Allow lets them overlap; Replace kills the running one."
+      },
+      "suspend": {
+        "type": "boolean",
+        "description": "Stop scheduling without deleting the object"
+      },
+      "startingDeadlineSeconds": {
+        "type": ["integer", "null"],
+        "minimum": 0,
+        "description": "Seconds a missed run may still start late"
+      },
+      "successfulJobsHistoryLimit": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Completed Jobs kept"
+      },
+      "failedJobsHistoryLimit": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Failed Jobs kept"
+      },
+      "backoffLimit": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Retries before the Job is marked failed"
+      },
+      "activeDeadlineSeconds": {
+        "type": ["integer", "string", "null"],
+        "description": "Wall-clock seconds before a running Job is killed. Empty means no cap, which lets a hung run block every later one under Forbid."
+      },
+      "restartPolicy": {
+        "type": "string",
+        "enum": ["Never", "OnFailure"],
+        "description": "Never leaves a failed pod for inspection; OnFailure restarts in place"
+      },
+      "command": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Override the image entrypoint"
+      },
+      "args": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Override the image arguments"
+      }
+    }
+  },
+  "image": {
+    "type": "object",
+    "description": "Container image",
+    "required": ["repository", "tag"],
+    "properties": {
+      "repository": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Image repository, without the tag"
+      },
+      "pullPolicy": {
+        "type": "string",
+        "enum": ["Always", "IfNotPresent", "Never"],
+        "description": "Image pull policy"
+      },
+      "tag": {
+        "type": "string",
+        "description": "Image tag. Required at render time — _helpers.tpl calls fail when it is empty."
+      }
+    }
+  },
+  "imagePullSecrets": {
+    "type": "array",
+    "description": "Secrets used to pull from a private registry"
+  },
+  "env": {
+    "type": "array",
+    "description": "Environment variables, in Kubernetes list form"
+  },
+  "podAnnotations": {
+    "type": "object",
+    "description": "Annotations added to pods"
+  },
+  "podSecurityContext": {
+    "type": "object",
+    "description": "Pod-level security context"
+  },
+  "securityContext": {
+    "type": "object",
+    "description": "Container-level security context"
+  },
+  "resources": {
+    "type": "object",
+    "description": "Compute resources"
+  },
+  "nodeSelector": {
+    "type": "object",
+    "description": "Node labels the pods must match"
+  },
+  "tolerations": {
+    "type": "array",
+    "description": "Tolerations"
+  }
+}

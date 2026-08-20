@@ -7,6 +7,8 @@
 package scaffold
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"github.com/somaz94/helm-chart-kit/internal/catalog"
 	"github.com/somaz94/helm-chart-kit/internal/chart"
 	"github.com/somaz94/helm-chart-kit/internal/render"
+	"github.com/somaz94/helm-chart-kit/internal/schema"
 	"github.com/somaz94/helm-chart-kit/internal/values"
 )
 
@@ -102,6 +105,10 @@ type NewOptions struct {
 	Preset string
 	// Extra are resources added on top of the preset.
 	Extra []string
+	// Schema emits values.schema.json alongside values.yaml.
+	Schema bool
+	// SchemaStrict closes the top level of the generated schema.
+	SchemaStrict bool
 }
 
 // PlanNew builds the plan for creating a chart.
@@ -185,6 +192,14 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	plan.ValuesAdded, plan.ValuesSkipped = res.Added, res.Skipped
 	plan.Files = append(plan.Files, File{Path: "values.yaml", Action: Create, Content: merged})
 
+	if opts.Schema {
+		doc, _, err := BuildSchema(data, resources, opts.SchemaStrict)
+		if err != nil {
+			return nil, err
+		}
+		plan.Files = append(plan.Files, File{Path: SchemaFile, Action: Create, Content: doc})
+	}
+
 	return plan, nil
 }
 
@@ -205,17 +220,12 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 		}
 	}
 
-	data := render.Data{
-		ChartName:   c.Meta.Name,
-		Description: c.Meta.Description,
-		Version:     c.Meta.Version,
-		AppVersion:  c.Meta.AppVersion,
-		Preset:      c.Meta.Annotations["helm-chart-kit/preset"],
-		Resources:   names(resources),
-	}
+	data := DataFor(c)
+	data.Resources = names(resources)
 
 	plan := &Plan{ChartDir: c.Dir}
 	present := presentResources(existingTemplates)
+	existing := resourcesFrom(present)
 
 	frags := make([]values.Fragment, 0, len(resources))
 	for _, r := range resources {
@@ -272,7 +282,45 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 		plan.Files = append(plan.Files, File{Path: "values.yaml", Action: Skip, Reason: "no new keys"})
 	}
 
+	// A chart that already declares a schema has to keep declaring every key
+	// its values.yaml carries — Helm validates the two against each other on
+	// every render, so leaving the schema behind would break the chart.
+	if c.HasSchema() {
+		after := append(existing, resources...)
+		doc, _, err := BuildSchema(data, after, SchemaIsStrict(c))
+		if err != nil {
+			return nil, err
+		}
+		current, err := c.Schema()
+		if err != nil {
+			return nil, err
+		}
+		if bytes.Equal(current, doc) {
+			plan.Files = append(plan.Files, File{Path: SchemaFile, Action: Skip, Reason: "already up to date"})
+		} else {
+			plan.Files = append(plan.Files, File{Path: SchemaFile, Action: Update, Content: doc})
+		}
+	}
+
 	return plan, nil
+}
+
+// SchemaIsStrict reports whether the chart's existing schema closes its top
+// level, so that regenerating it preserves the choice the author made. A chart
+// with no schema, or one that cannot be parsed, is reported as not strict —
+// the permissive answer, which is the safe one to guess.
+func SchemaIsStrict(c *chart.Chart) bool {
+	raw, err := c.Schema()
+	if err != nil {
+		return false
+	}
+	var doc struct {
+		AdditionalProperties *bool `json:"additionalProperties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return false
+	}
+	return doc.AdditionalProperties != nil && !*doc.AdditionalProperties
 }
 
 // Apply writes the plan to disk.
@@ -377,4 +425,78 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// DataFor builds the template substitution context from a chart on disk.
+func DataFor(c *chart.Chart) render.Data {
+	return render.Data{
+		ChartName:   c.Meta.Name,
+		Description: c.Meta.Description,
+		Version:     c.Meta.Version,
+		AppVersion:  c.Meta.AppVersion,
+		Preset:      c.Meta.Annotations["helm-chart-kit/preset"],
+	}
+}
+
+// SchemaFile is the generated schema's name inside a chart.
+const SchemaFile = "values.schema.json"
+
+// canonicalOrder fixes the order resources contribute to values.yaml and to
+// values.schema.json: the workload first, then the rest by name.
+//
+// Determinism is the point — "hck schema --check" compares bytes, so a chart
+// read back off disk has to reassemble in the same order it was written in.
+// Workload-first is what makes the two agree on a key two resources both
+// define: "persistence" belongs to the StatefulSet when the chart has one,
+// and to the PVC otherwise, which is exactly what the values merge decides.
+func canonicalOrder(rs []catalog.Resource) []catalog.Resource {
+	out := make([]catalog.Resource, len(rs))
+	copy(out, rs)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Workload != out[j].Workload {
+			return out[i].Workload
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// ChartResources reports which catalog resources a chart on disk carries.
+func ChartResources(c *chart.Chart) ([]catalog.Resource, error) {
+	files, err := c.TemplateFiles()
+	if err != nil {
+		return nil, err
+	}
+	return canonicalOrder(resourcesFrom(presentResources(files))), nil
+}
+
+// resourcesFrom maps a presence set to catalog entries, ordered by name.
+func resourcesFrom(present map[string]bool) []catalog.Resource {
+	out := make([]catalog.Resource, 0, len(present))
+	for _, r := range catalog.Resources() {
+		if present[r.Name] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// BuildSchema assembles values.schema.json for a resource set.
+func BuildSchema(data render.Data, resources []catalog.Resource, strict bool) ([]byte, schema.Result, error) {
+	var empty schema.Result
+
+	base, err := render.BaseSchema(data)
+	if err != nil {
+		return nil, empty, err
+	}
+	frags := make([]schema.Fragment, 0, len(resources)+1)
+	frags = append(frags, schema.Fragment{Resource: "chart", Body: string(base)})
+	for _, r := range canonicalOrder(resources) {
+		body, err := render.ResourceSchema(r.Name, data)
+		if err != nil {
+			return nil, empty, err
+		}
+		frags = append(frags, schema.Fragment{Resource: r.Name, Body: string(body)})
+	}
+	return schema.Build(frags, schema.Options{Title: data.ChartName + " values", Strict: strict})
 }

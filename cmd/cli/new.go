@@ -11,13 +11,15 @@ import (
 
 func newNewCmd() *cobra.Command {
 	var opts struct {
-		preset      string
-		dir         string
-		description string
-		version     string
-		appVersion  string
-		with        []string
-		dryRun      bool
+		preset       string
+		dir          string
+		description  string
+		version      string
+		appVersion   string
+		with         []string
+		dryRun       bool
+		schema       bool
+		schemaStrict bool
 	}
 
 	cmd := &cobra.Command{
@@ -31,7 +33,8 @@ top. Every resource contributes its own documented section to values.yaml.`,
 		Example: `  hck new payments-api
   hck new payments-api --preset worker
   hck new cache --preset stateful --with servicemonitor,pdb
-  hck new gateway --preset web --with httproute --dry-run`,
+  hck new gateway --preset web --with httproute --dry-run
+  hck new payments-api --schema`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			desc := opts.description
@@ -40,13 +43,15 @@ top. Every resource contributes its own documented section to values.yaml.`,
 			}
 
 			plan, err := scaffold.PlanNew(scaffold.NewOptions{
-				Parent:      opts.dir,
-				Name:        name,
-				Description: desc,
-				Version:     opts.version,
-				AppVersion:  opts.appVersion,
-				Preset:      opts.preset,
-				Extra:       splitList(opts.with),
+				Parent:       opts.dir,
+				Name:         name,
+				Description:  desc,
+				Version:      opts.version,
+				AppVersion:   opts.appVersion,
+				Preset:       opts.preset,
+				Extra:        splitList(opts.with),
+				Schema:       opts.schema || opts.schemaStrict,
+				SchemaStrict: opts.schemaStrict,
 			})
 			if err != nil {
 				return err
@@ -78,6 +83,8 @@ top. Every resource contributes its own documented section to values.yaml.`,
 	cmd.Flags().StringVar(&opts.appVersion, "app-version", "1.0.0", "version of the application the chart deploys")
 	cmd.Flags().StringSliceVar(&opts.with, "with", nil, "extra resources on top of the preset")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be written and exit")
+	cmd.Flags().BoolVar(&opts.schema, "schema", false, "also write values.schema.json")
+	cmd.Flags().BoolVar(&opts.schemaStrict, "schema-strict", false, "write values.schema.json and reject undeclared top-level keys")
 
 	_ = cmd.RegisterFlagCompletionFunc("preset",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

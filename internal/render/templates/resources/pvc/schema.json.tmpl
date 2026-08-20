@@ -1,0 +1,37 @@
+{
+  "persistence": {
+    "type": "object",
+    "description": "Standalone PersistentVolumeClaim with a Helm resource-policy keep",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the PersistentVolumeClaim"
+      },
+      "existingClaim": {
+        "type": "string",
+        "description": "Use an existing claim instead of creating one"
+      },
+      "storageClass": {
+        "type": "string",
+        "description": "StorageClass. Empty uses the cluster default."
+      },
+      "accessModes": {
+        "type": "array",
+        "description": "Access modes",
+        "items": {
+          "type": "string",
+          "enum": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany", "ReadWriteOncePod"]
+        }
+      },
+      "size": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Requested size, as a Kubernetes quantity"
+      },
+      "retain": {
+        "type": "boolean",
+        "description": "Keep the claim when the release is uninstalled"
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "service": {
+    "type": "object",
+    "description": "Service, with headless mode for StatefulSet peers",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"],
+        "description": "Service type"
+      },
+      "headless": {
+        "type": "boolean",
+        "description": "Publish with no cluster IP. Required for StatefulSet peer DNS."
+      },
+      "port": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+        "description": "Port exposed by the Service"
+      },
+      "targetPort": {
+        "type": ["string", "integer"],
+        "description": "Port on the pod the Service forwards to. A named port keeps the Service working when the container port moves."
+      },
+      "portName": {
+        "type": "string",
+        "description": "Name of the Service port, referenced by Ingress and ServiceMonitor"
+      },
+      "nodePort": {
+        "type": ["string", "integer", "null"],
+        "description": "Fixed node port. Only read when type is NodePort; leave empty to let the API server allocate one."
+      },
+      "extraPorts": {
+        "type": "array",
+        "description": "Extra ports appended verbatim to the ports list"
+      },
+      "annotations": {
+        "type": "object",
+        "description": "Annotations, e.g. cloud load balancer configuration"
+      }
+    }
+  }
+}

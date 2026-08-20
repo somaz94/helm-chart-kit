@@ -1,0 +1,22 @@
+{
+  "nameOverride": {
+    "type": "string",
+    "description": "Override the chart name used in resource names"
+  },
+  "fullnameOverride": {
+    "type": "string",
+    "description": "Override the fully qualified release name used in resource names"
+  },
+  "commonLabels": {
+    "type": "object",
+    "description": "Labels added to every resource in the chart"
+  },
+  "commonAnnotations": {
+    "type": "object",
+    "description": "Annotations added to every resource in the chart"
+  },
+  "global": {
+    "type": "object",
+    "description": "Values shared with subcharts. Helm always allows this key, so it is declared here for the benefit of --strict."
+  }
+}

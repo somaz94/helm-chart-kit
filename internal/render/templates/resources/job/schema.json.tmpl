@@ -1,0 +1,58 @@
+{
+  "job": {
+    "type": "object",
+    "description": "One-shot Job, optionally gated on a Helm hook. A hook Job is not part of the release manifest, so `helm rollback` will not undo what it did.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the Job"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Name suffix, also the container name"
+      },
+      "backoffLimit": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Retries before the Job is marked failed"
+      },
+      "ttlSecondsAfterFinished": {
+        "type": ["integer", "string", "null"],
+        "description": "Seconds the finished Job object is kept before the TTL controller deletes it. Empty keeps it forever."
+      },
+      "command": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Override the image entrypoint"
+      },
+      "args": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Override the image arguments"
+      },
+      "hook": {
+        "type": "object",
+        "description": "Run the Job as a Helm hook",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Run as a Helm hook rather than an ordinary release resource"
+          },
+          "events": {
+            "type": "string",
+            "description": "Comma-separated hook events"
+          },
+          "weight": {
+            "type": ["string", "integer"],
+            "description": "Lower weights run first"
+          },
+          "deletePolicy": {
+            "type": "string",
+            "description": "before-hook-creation clears the previous Job so a re-run is not rejected for touching an immutable field"
+          }
+        }
+      }
+    }
+  }
+}

@@ -137,6 +137,56 @@ jobs:
           hck add servicemonitor --chart "$chart"
           cmp /tmp/values.once "$chart/values.yaml"
 
+      # A generated schema must accept the chart it was generated for, stay in
+      # step as resources are added, and still reject what it claims to.
+      - name: Generate and enforce values.schema.json
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+
+          for preset in web worker cronjob stateful; do
+            echo "::group::$preset"
+            hck new "$preset" --dir "$workdir" --preset "$preset" --schema
+            hck check --chart "$workdir/$preset" --strict
+            hck schema --chart "$workdir/$preset" --check
+            echo "::endgroup::"
+          done
+
+          # Adding a resource must carry the schema along with values.yaml.
+          chart="$workdir/web"
+          hck add servicemonitor prometheusrule job secret --chart "$chart"
+          hck schema --chart "$chart" --check
+          hck check --chart "$chart" --strict
+
+          # --strict survives a regeneration.
+          hck new strictapp --dir "$workdir" --schema-strict
+          hck add pdb --chart "$workdir/strictapp"
+          hck schema --chart "$workdir/strictapp" --check
+          grep -q '"additionalProperties": false' "$workdir/strictapp/values.schema.json"
+
+          # And the schema has to actually reject something.
+          if helm template rel "$chart" -f "$chart/ci/install-values.yaml" \
+               --set image.pullPolicy=Sometimes >/dev/null 2>&1; then
+            echo "FAIL: the schema accepted an invalid pullPolicy"
+            exit 1
+          fi
+          echo "PASS: schema enforced"
+
+      # A chart that never asked for a schema must not acquire one.
+      - name: Keep the schema opt-in
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new noschema --dir "$workdir"
+          hck add pdb servicemonitor --chart "$workdir/noschema"
+          if [ -e "$workdir/noschema/values.schema.json" ]; then
+            echo "FAIL: hck add introduced a schema the chart never asked for"
+            exit 1
+          fi
+          echo "PASS: opt-in"
+
       - name: Refuse a second workload
         run: |
           set -euo pipefail

@@ -1,12 +1,16 @@
 package scaffold
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/somaz94/helm-chart-kit/internal/catalog"
 	"github.com/somaz94/helm-chart-kit/internal/chart"
+	"github.com/somaz94/helm-chart-kit/internal/values"
 )
 
 func TestValidateName(t *testing.T) {
@@ -285,5 +289,243 @@ func TestApplySkipsSkips(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatal("a skip-only plan wrote something")
+	}
+}
+
+// newSchemaChart scaffolds a chart that carries a values.schema.json.
+func newSchemaChart(t *testing.T, preset string, strict bool, extra ...string) *chart.Chart {
+	t.Helper()
+	parent := t.TempDir()
+	plan, err := PlanNew(NewOptions{
+		Parent: parent, Name: "demo", Description: "d",
+		Version: "0.1.0", AppVersion: "1.0.0", Preset: preset, Extra: extra,
+		Schema: true, SchemaStrict: strict,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	c, err := chart.Load(plan.ChartDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// schemaProps reads the top-level property names out of a chart's schema.
+func schemaProps(t *testing.T, c *chart.Chart) map[string]bool {
+	t.Helper()
+	raw, err := c.Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("schema is not valid JSON: %v", err)
+	}
+	out := map[string]bool{}
+	for k := range doc.Properties {
+		out[k] = true
+	}
+	return out
+}
+
+func TestPlanNewOmitsTheSchemaByDefault(t *testing.T) {
+	c := newChart(t, "web")
+	if c.HasSchema() {
+		t.Error("a schema was written without --schema; Helm validates against it on every render, so it has to be opt-in")
+	}
+}
+
+// Every key values.yaml declares has to be described, or Helm rejects the
+// chart the moment it has a schema at all.
+func TestPlanNewSchemaCoversEveryValuesKey(t *testing.T) {
+	for _, preset := range catalog.PresetNames() {
+		t.Run(preset, func(t *testing.T) {
+			c := newSchemaChart(t, preset, false)
+			raw, err := c.Values()
+			if err != nil {
+				t.Fatal(err)
+			}
+			keys, err := values.TopLevelKeys(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			props := schemaProps(t, c)
+			for _, k := range keys {
+				if !props[k] {
+					t.Errorf("values.yaml declares %q but the schema does not describe it", k)
+				}
+			}
+		})
+	}
+}
+
+func TestPlanNewSchemaStrictClosesTheTopLevel(t *testing.T) {
+	c := newSchemaChart(t, "web", true)
+	if !SchemaIsStrict(c) {
+		t.Error("--schema-strict did not close the top level")
+	}
+	if !newSchemaChart(t, "web", false).HasSchema() {
+		t.Error("--schema alone wrote no schema")
+	}
+	if SchemaIsStrict(newSchemaChart(t, "web", false)) {
+		t.Error("a plain --schema chart reports as strict")
+	}
+}
+
+func TestPlanAddRegeneratesAnExistingSchema(t *testing.T) {
+	c := newSchemaChart(t, "web", false)
+	if schemaProps(t, c)["metrics"] {
+		t.Fatal("the web preset already describes metrics")
+	}
+
+	plan, err := PlanAdd(c, []string{"servicemonitor"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	if !schemaProps(t, c)["metrics"] {
+		t.Error("adding servicemonitor left values.schema.json behind, which breaks the chart")
+	}
+
+	var action Action
+	for _, f := range plan.Files {
+		if f.Path == SchemaFile {
+			action = f.Action
+		}
+	}
+	if action != Update {
+		t.Errorf("schema action = %q, want %q", action, Update)
+	}
+}
+
+func TestPlanAddLeavesACharWithNoSchemaAlone(t *testing.T) {
+	c := newChart(t, "web")
+	plan, err := PlanAdd(c, []string{"servicemonitor"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range plan.Files {
+		if f.Path == SchemaFile {
+			t.Fatal("hck add introduced a schema the chart never asked for")
+		}
+	}
+}
+
+func TestPlanAddKeepsTheSchemaStrict(t *testing.T) {
+	c := newSchemaChart(t, "web", true)
+	plan, err := PlanAdd(c, []string{"servicemonitor"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	if !SchemaIsStrict(c) {
+		t.Error("regenerating dropped additionalProperties: false")
+	}
+}
+
+func TestPlanAddSkipsAnUpToDateSchema(t *testing.T) {
+	c := newSchemaChart(t, "web", false)
+	plan, err := PlanAdd(c, []string{"configmap"}, false) // already in the web preset
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range plan.Files {
+		if f.Path == SchemaFile && f.Action != Skip {
+			t.Errorf("schema action = %q, want %q when nothing changed", f.Action, Skip)
+		}
+	}
+}
+
+// A chart read back off disk has to reassemble byte-for-byte, or --check
+// reports drift the moment it is written.
+func TestBuildSchemaRoundTripsThroughDisk(t *testing.T) {
+	for _, preset := range catalog.PresetNames() {
+		t.Run(preset, func(t *testing.T) {
+			c := newSchemaChart(t, preset, false)
+			onDisk, err := c.Schema()
+			if err != nil {
+				t.Fatal(err)
+			}
+			resources, err := ChartResources(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rebuilt, _, err := BuildSchema(DataFor(c), resources, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(onDisk, rebuilt) {
+				t.Error("rebuilding from the chart directory does not reproduce the written schema")
+			}
+		})
+	}
+}
+
+// The StatefulSet owns "persistence" when the chart has one, and the PVC owns
+// it otherwise — the same resolution the values merge makes.
+func TestCanonicalOrderPutsTheWorkloadFirst(t *testing.T) {
+	c := newSchemaChart(t, "stateful", false, "pvc")
+	raw, err := c.Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Properties struct {
+			Persistence struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"persistence"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Properties.Persistence.Properties["mountPath"]; !ok {
+		t.Error("persistence came from the PVC, but the StatefulSet contributes it to values.yaml first")
+	}
+}
+
+func TestSchemaIsStrictHandlesAMissingOrBrokenFile(t *testing.T) {
+	c := newChart(t, "web")
+	if SchemaIsStrict(c) {
+		t.Error("a chart with no schema reported as strict")
+	}
+	if err := os.WriteFile(c.SchemaPath(), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if SchemaIsStrict(c) {
+		t.Error("an unparseable schema reported as strict; the permissive guess is the safe one")
+	}
+}
+
+func TestChartResourcesReadsTheTemplateDirectory(t *testing.T) {
+	c := newChart(t, "worker")
+	got, err := ChartResources(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, r := range got {
+		names[r.Name] = true
+	}
+	for _, want := range []string{"deployment", "serviceaccount", "pdb", "networkpolicy", "configmap"} {
+		if !names[want] {
+			t.Errorf("worker chart is missing %q", want)
+		}
+	}
+	if names["ingress"] {
+		t.Error("worker chart reported an ingress it does not have")
+	}
+	if !got[0].Workload {
+		t.Errorf("first resource is %q, want the workload", got[0].Name)
 	}
 }

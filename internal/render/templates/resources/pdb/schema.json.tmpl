@@ -1,0 +1,20 @@
+{
+  "podDisruptionBudget": {
+    "type": "object",
+    "description": "PodDisruptionBudget guarding voluntary evictions. Only minAvailable or maxUnavailable is rendered, never both — the API rejects a PDB carrying the two.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the PodDisruptionBudget"
+      },
+      "minAvailable": {
+        "type": ["integer", "string", "null"],
+        "description": "Minimum pods that must stay available. Count or percentage. A single-replica workload with minAvailable 1 blocks node drains indefinitely."
+      },
+      "maxUnavailable": {
+        "type": ["integer", "string", "null"],
+        "description": "Maximum pods that may go down at once"
+      }
+    }
+  }
+}

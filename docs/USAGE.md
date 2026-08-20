@@ -18,6 +18,8 @@ hck new <chart-name> [flags]
 | `--description` | `A Helm chart for <name>` | `Chart.yaml` description |
 | `--version` | `0.1.0` | Chart version |
 | `--app-version` | `1.0.0` | Version of the application the chart deploys |
+| `--schema` | `false` | Also write `values.schema.json` |
+| `--schema-strict` | `false` | Write `values.schema.json` and reject undeclared top-level keys |
 | `--dry-run` | `false` | Print what would be written and exit |
 
 ```bash
@@ -25,6 +27,7 @@ hck new payments-api
 hck new billing-worker --preset worker
 hck new sessions --preset stateful --with servicemonitor
 hck new gateway --preset web --with httproute,prometheusrule --dry-run
+hck new payments-api --schema
 ```
 
 The chart name must be a lowercase DNS label — Helm's own constraint — and the target directory must be empty or absent.
@@ -95,6 +98,45 @@ hck check --no-render          # no helm needed
 When no `-f` is given and the chart has `ci/install-values.yaml`, that file is used. A chart whose `image.tag` is required cannot render on its defaults — which is the point of requiring one — so the CI values file is what makes it checkable at all.
 
 `hck check` exits non-zero on any error finding, or on any finding at all under `--strict`.
+
+<br/>
+
+## hck schema
+
+Assemble the chart's `values.schema.json` from the resources it carries.
+
+```bash
+hck schema [flags]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--chart` | `.` | Chart directory |
+| `--write` | `false` | Write `values.schema.json` into the chart |
+| `--check` | `false` | Fail when the file on disk differs from what would be generated |
+| `--strict` | existing file's setting | Reject undeclared top-level keys |
+
+```bash
+hck schema                     # print it
+hck schema --write             # write it into the chart
+hck schema --write --strict    # write it with the top level closed
+hck schema --check             # CI gate
+```
+
+With no flag the schema goes to stdout and the chart is left alone. `--write` and `--check` are mutually exclusive.
+
+Helm validates the coalesced values against this file on **every** render, so the generated schema is deliberately permissive: objects stay open, and a scalar whose default is empty is typed as the union it really accepts. A schema that is merely incomplete does not document a chart, it breaks one.
+
+`--strict` closes the top level only. Nested objects stay open — the point is to catch a misspelled key, not to model the Kubernetes API — and `global` is always allowed so subchart values keep working.
+
+`--strict` is sticky: once a schema is written with it, `hck schema` and `hck add` both keep it that way. Pass `--strict=false` to drop it deliberately.
+
+### Keeping it current
+
+A chart that has a schema must describe every key its `values.yaml` declares, or helm refuses the chart. Two things keep that true:
+
+- `hck add` regenerates the schema whenever it appends to `values.yaml`. A chart with no schema does not get one — the file is opt-in.
+- `hck schema --check` rebuilds and compares, so CI catches a `values.yaml` edited by hand without the schema following it.
 
 <br/>
 

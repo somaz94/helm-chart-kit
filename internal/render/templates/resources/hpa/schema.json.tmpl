@@ -1,0 +1,45 @@
+{
+  "autoscaling": {
+    "type": "object",
+    "description": "HorizontalPodAutoscaler. While enabled, replicaCount is not rendered — the HPA owns the replica count.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the HorizontalPodAutoscaler"
+      },
+      "targetKind": {
+        "type": "string",
+        "enum": ["Deployment", "StatefulSet"],
+        "description": "Kind of the scale target"
+      },
+      "minReplicas": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Lower bound"
+      },
+      "maxReplicas": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Upper bound"
+      },
+      "targetCPUUtilizationPercentage": {
+        "type": ["integer", "null"],
+        "minimum": 1,
+        "description": "Target average CPU utilization. Set to null to drop the CPU metric."
+      },
+      "targetMemoryUtilizationPercentage": {
+        "type": ["integer", "null"],
+        "minimum": 1,
+        "description": "Target average memory utilization. Null by default: memory rarely falls back after a spike, so scaling on it tends to ratchet up and stay there."
+      },
+      "extraMetrics": {
+        "type": "array",
+        "description": "Extra metrics appended verbatim, e.g. an external queue depth"
+      },
+      "behavior": {
+        "type": "object",
+        "description": "Scale-up and scale-down behaviour"
+      }
+    }
+  }
+}

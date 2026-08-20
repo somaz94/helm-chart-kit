@@ -1,0 +1,24 @@
+{
+  "prometheusRule": {
+    "type": "object",
+    "description": "Prometheus Operator PrometheusRule alert group. Rules are rendered through tpl, so expressions may reference .Release and .Values.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the PrometheusRule"
+      },
+      "namespace": {
+        "type": "string",
+        "description": "Namespace to create it in. Empty uses the release namespace."
+      },
+      "additionalLabels": {
+        "type": "object",
+        "description": "Labels the Prometheus resource selects on"
+      },
+      "rules": {
+        "type": "array",
+        "description": "Alert and recording rules"
+      }
+    }
+  }
+}

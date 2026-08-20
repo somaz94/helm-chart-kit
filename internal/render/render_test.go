@@ -1,6 +1,7 @@
 package render
 
 import (
+	"encoding/json"
 	"io/fs"
 	"strings"
 	"testing"
@@ -109,7 +110,56 @@ func TestEveryCatalogResourceRenders(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertFullyRendered(t, name+"/values.yaml", vals)
+
+			sch, err := ResourceSchema(name, testData())
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertFullyRendered(t, name+"/schema.json", sch)
+			assertSchemaFragment(t, name+"/schema.json", sch)
 		})
+	}
+}
+
+func TestBaseSchemaRenders(t *testing.T) {
+	out, err := BaseSchema(testData())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFullyRendered(t, "schema/base.json", out)
+	assertSchemaFragment(t, "schema/base.json", out)
+}
+
+func TestResourceSchemaUnknown(t *testing.T) {
+	if _, err := ResourceSchema("definitely-not-a-resource", testData()); err == nil {
+		t.Error("want an error for an unknown resource")
+	}
+}
+
+// assertSchemaFragment checks that a fragment is a JSON object of key to
+// schema. A fragment that does not parse fails the build of every chart that
+// asks for a schema, so it is worth catching here rather than at render time.
+func assertSchemaFragment(t *testing.T, where string, out []byte) {
+	t.Helper()
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Errorf("%s is not a JSON object: %v", where, err)
+		return
+	}
+	if len(doc) == 0 {
+		t.Errorf("%s declares no keys", where)
+	}
+	for key, raw := range doc {
+		var body struct {
+			Type any `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Errorf("%s: %s is not a schema object: %v", where, key, err)
+			continue
+		}
+		if body.Type == nil {
+			t.Errorf("%s: %s declares no type", where, key)
+		}
 	}
 }
 

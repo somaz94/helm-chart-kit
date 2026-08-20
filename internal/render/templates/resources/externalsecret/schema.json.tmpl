@@ -1,0 +1,55 @@
+{
+  "externalSecret": {
+    "type": "object",
+    "description": "External Secrets Operator ExternalSecret. Requires ESO and a SecretStore or ClusterSecretStore the release namespace is allowed to read.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the ExternalSecret"
+      },
+      "refreshInterval": {
+        "type": "string",
+        "description": "How often the operator re-reads the provider"
+      },
+      "secretStoreRef": {
+        "type": "object",
+        "description": "Store to read from",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Store to read from"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["SecretStore", "ClusterSecretStore"],
+            "description": "SecretStore (namespaced) or ClusterSecretStore"
+          }
+        }
+      },
+      "target": {
+        "type": "object",
+        "description": "Secret this ExternalSecret creates",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the Secret to create. Defaults to the chart fullname."
+          },
+          "creationPolicy": {
+            "type": "string",
+            "enum": ["Owner", "Orphan", "Merge", "None"],
+            "description": "Owner keeps the Secret bound to the ExternalSecret lifecycle"
+          }
+        }
+      },
+      "data": {
+        "type": "array",
+        "description": "Explicit key mapping"
+      },
+      "dataFrom": {
+        "type": "array",
+        "description": "Pull every key from a remote path"
+      }
+    }
+  }
+}

@@ -96,6 +96,11 @@ hck add httproute --dry-run
 hck check
 hck check -f values/prod.yaml --strict
 
+# Describe the values with a JSON Schema
+hck new payments-api --schema         # scaffold with values.schema.json
+hck schema --write                    # add one to a chart that already exists
+hck schema --check                    # CI gate: is it still current?
+
 # See what is available
 hck list
 ```
@@ -127,6 +132,58 @@ payments-api/
 ```
 
 It passes `hck check` on the first run, with no findings.
+
+`--schema` adds a `values.schema.json` beside `values.yaml`.
+
+<br/>
+
+## `values.schema.json`
+
+Helm validates a chart's values against `values.schema.json` on every render,
+which cuts both ways: a good schema turns a typo into an error message, and a
+merely incomplete one turns a working values file into a failed release. That
+is why `hck` generates the file rather than asking you to write it, and why it
+is opt-in:
+
+```bash
+hck new payments-api --schema      # scaffold with a schema
+hck schema --write                 # add one to a chart that already has none
+hck schema                         # print it without writing
+hck schema --check                 # fail if the file on disk is stale
+```
+
+Once a chart has one, `hck add` keeps it in step — a resource that contributes
+values keys contributes the schema for them in the same run.
+
+The generated schema is deliberately permissive. Objects stay open, and a
+scalar whose default is empty is typed as the union it really accepts, so
+`service.nodePort` takes a string or an integer rather than only the empty
+string it ships with. What it does constrain is what Kubernetes itself
+constrains: `image.pullPolicy` is one of three values, `service.type` one of
+four, `cronjob.concurrencyPolicy` one of three.
+
+`--strict` closes the top level, so an undeclared top-level key is an error
+instead of a value that silently does nothing:
+
+```bash
+hck new payments-api --schema-strict
+hck schema --write --strict
+```
+
+```console
+$ helm template rel ./payments-api --set replicaCont=3
+Error: values don't meet the specifications of the schema(s) in the following chart(s):
+payments-api:
+- (root): Additional property replicaCont is not allowed
+```
+
+Nested objects stay open even then — the point is to catch a misspelled key,
+not to model the Kubernetes API. `global` is always allowed, so subchart values
+still work.
+
+`hck schema --check` is the CI gate: it rebuilds the schema and fails if the
+committed file differs, which catches a `values.yaml` edited by hand without
+the schema following it.
 
 <br/>
 

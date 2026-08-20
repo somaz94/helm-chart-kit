@@ -1,0 +1,47 @@
+{
+  "ingress": {
+    "type": "object",
+    "description": "Ingress with TLS blocks and per-path pathType. On a cluster running Gateway API, prefer httpRoute.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the Ingress"
+      },
+      "className": {
+        "type": "string",
+        "description": "IngressClass name. Leave empty to use the cluster default."
+      },
+      "annotations": {
+        "type": "object",
+        "description": "Annotations, e.g. cert-manager issuer or controller tuning"
+      },
+      "hosts": {
+        "type": "array",
+        "description": "Hosts and their paths",
+        "items": {
+          "type": "object",
+          "properties": {
+            "host": { "type": "string" },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": { "type": "string" },
+                  "pathType": {
+                    "type": "string",
+                    "enum": ["Exact", "Prefix", "ImplementationSpecific"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "tls": {
+        "type": "array",
+        "description": "TLS blocks, each pairing hosts with an existing Secret"
+      }
+    }
+  }
+}

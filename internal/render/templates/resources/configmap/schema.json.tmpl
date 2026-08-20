@@ -1,0 +1,17 @@
+{
+  "configMap": {
+    "type": "object",
+    "description": "ConfigMap with a checksum annotation hook for rollout on change. Every value is run through tpl, so entries may reference .Release and .Values.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the ConfigMap"
+      },
+      "data": {
+        "type": "object",
+        "description": "File name to file content. Values are multi-line strings.",
+        "additionalProperties": { "type": "string" }
+      }
+    }
+  }
+}

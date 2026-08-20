@@ -1,0 +1,30 @@
+{
+  "tests": {
+    "type": "object",
+    "description": "helm test hook that dials the Service. Run with `helm test <release>`.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Render the test hook"
+      },
+      "image": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Image used by the connection test, repository and tag together"
+      },
+      "path": {
+        "type": "string",
+        "description": "Path requested against the Service"
+      },
+      "timeoutSeconds": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Seconds before the probe gives up"
+      },
+      "resources": {
+        "type": "object",
+        "description": "Resources for the test pod. Small, but set: an unbounded test pod is still a pod the scheduler has to place."
+      }
+    }
+  }
+}

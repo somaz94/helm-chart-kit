@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,5 +191,204 @@ func TestSplitList(t *testing.T) {
 	}
 	if splitList(nil) != nil {
 		t.Error("nil input should yield nil")
+	}
+}
+
+// schemaChart scaffolds a chart carrying a values.schema.json and returns its
+// directory.
+func schemaChart(t *testing.T, extra ...string) string {
+	t.Helper()
+	parent := t.TempDir()
+	args := append([]string{"new", "demo", "-d", parent, "--schema"}, extra...)
+	mustRun(t, args...)
+	return filepath.Join(parent, "demo")
+}
+
+func TestSchemaPrintsToStdoutByDefault(t *testing.T) {
+	dir := schemaChart(t)
+	out := mustRun(t, "schema", "--chart", dir)
+
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("printed schema is not valid JSON: %v\n%s", err, out)
+	}
+	if doc["title"] != "demo values" {
+		t.Errorf("title = %v", doc["title"])
+	}
+	// Printing must not touch the chart.
+	before, err := os.ReadFile(filepath.Join(dir, "values.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "schema", "--chart", dir)
+	after, err := os.ReadFile(filepath.Join(dir, "values.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("printing rewrote the chart's schema")
+	}
+}
+
+func TestSchemaWrite(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+	path := filepath.Join(dir, "values.schema.json")
+
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("hck new wrote a schema without --schema")
+	}
+	out := mustRun(t, "schema", "--chart", dir, "--write")
+	if !strings.Contains(out, "wrote") {
+		t.Errorf("got %q", out)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("--write produced no file: %v", err)
+	}
+	mustRun(t, "schema", "--chart", dir, "--check")
+}
+
+func TestSchemaCheckReportsDrift(t *testing.T) {
+	dir := schemaChart(t)
+	mustRun(t, "schema", "--chart", dir, "--check")
+
+	// Adding a resource without regenerating is exactly the drift --check is
+	// for, so simulate it by truncating the schema instead.
+	path := filepath.Join(dir, "values.schema.json")
+	if err := os.WriteFile(path, []byte(`{"type": "object"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, "schema", "--chart", dir, "--check")
+	if err == nil {
+		t.Fatalf("want an error for a stale schema, got %q", out)
+	}
+	if !strings.Contains(err.Error(), "out of date") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestSchemaCheckNeedsASchema(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	_, err := run(t, "schema", "--chart", filepath.Join(parent, "demo"), "--check")
+	if err == nil {
+		t.Fatal("want an error when the chart has no schema")
+	}
+	if !strings.Contains(err.Error(), "has no values.schema.json") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestSchemaCheckFollowsTheExistingStrictness(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--schema-strict")
+	dir := filepath.Join(parent, "demo")
+
+	// Without an explicit flag, --check has to notice the file is strict.
+	mustRun(t, "schema", "--chart", dir, "--check")
+
+	// Asked for the permissive build explicitly, it must report the difference.
+	if _, err := run(t, "schema", "--chart", dir, "--check", "--strict=false"); err == nil {
+		t.Error("want an error when the requested strictness differs")
+	}
+}
+
+func TestSchemaStrictClosesTheTopLevel(t *testing.T) {
+	dir := schemaChart(t)
+	out := mustRun(t, "schema", "--chart", dir, "--strict")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := doc["additionalProperties"].(bool); !ok || got {
+		t.Errorf("additionalProperties = %v, want false", doc["additionalProperties"])
+	}
+}
+
+func TestSchemaRejectsWriteAndCheckTogether(t *testing.T) {
+	dir := schemaChart(t)
+	if _, err := run(t, "schema", "--chart", dir, "--write", "--check"); err == nil {
+		t.Error("want an error when both are passed")
+	}
+}
+
+func TestSchemaOutsideAChart(t *testing.T) {
+	if _, err := run(t, "schema", "--chart", t.TempDir()); err == nil {
+		t.Error("want an error when there is no Chart.yaml")
+	}
+}
+
+func TestNewSchemaFlagShowsInThePlan(t *testing.T) {
+	out := mustRun(t, "new", "demo", "-d", t.TempDir(), "--schema", "--dry-run")
+	if !strings.Contains(out, "values.schema.json") {
+		t.Errorf("dry run does not mention the schema:\n%s", out)
+	}
+	plain := mustRun(t, "new", "demo", "-d", t.TempDir(), "--dry-run")
+	if strings.Contains(plain, "values.schema.json") {
+		t.Errorf("dry run mentions a schema without --schema:\n%s", plain)
+	}
+}
+
+// The generated schema has to survive the thing that actually enforces it.
+// Helm validates the coalesced values against values.schema.json on every
+// render, so a schema that is wrong about a key does not annotate a chart, it
+// stops it installing — and only helm itself can prove otherwise.
+func TestHelmAcceptsTheGeneratedSchema(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	dir := t.TempDir()
+	for _, preset := range []string{"web", "worker", "cronjob", "stateful"} {
+		for _, strict := range []bool{false, true} {
+			name := preset
+			flag := "--schema"
+			if strict {
+				name += "-strict"
+				flag = "--schema-strict"
+			}
+			t.Run(name, func(t *testing.T) {
+				mustRun(t, "new", name, "--dir", dir, "--preset", preset, flag)
+				chartDir := filepath.Join(dir, name)
+				out := mustRun(t, "check", "--chart", chartDir, "--strict")
+				if !strings.Contains(out, "no findings") {
+					t.Fatalf("a chart hck just generated does not pass its own check:\n%s", out)
+				}
+			})
+		}
+	}
+}
+
+// A resource added after the fact contributes values keys, and helm rejects
+// the chart if the schema does not grow with them.
+func TestHelmAcceptsTheSchemaAfterAdd(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	dir := schemaChart(t)
+	mustRun(t, "add", "servicemonitor", "prometheusrule", "job", "secret", "--chart", dir)
+	mustRun(t, "schema", "--chart", dir, "--check")
+	out := mustRun(t, "check", "--chart", dir)
+	if !strings.Contains(out, "no findings") {
+		t.Fatalf("the chart stopped passing its own check after hck add:\n%s", out)
+	}
+}
+
+// The schema has to reject what it claims to reject, or it is decoration.
+func TestHelmRejectsAValueTheSchemaForbids(t *testing.T) {
+	helm, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	dir := schemaChart(t)
+	cmd := exec.Command(helm, "template", "rel", dir,
+		"-f", filepath.Join(dir, "ci", "install-values.yaml"),
+		"--set", "image.pullPolicy=Sometimes")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("helm accepted an invalid pullPolicy:\n%s", out)
+	}
+	if !strings.Contains(string(out), "pullPolicy") {
+		t.Errorf("helm failed for some other reason:\n%s", out)
 	}
 }

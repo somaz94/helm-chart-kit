@@ -1,6 +1,9 @@
 package catalog
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -121,7 +124,7 @@ func TestEveryResourceHasTemplates(t *testing.T) {
 	}
 }
 
-// testData is the minimum context the values fragments need to render.
+// testData is the minimum context the fragments need to render.
 func testData() render.Data {
 	return render.Data{
 		ChartName:   "demo",
@@ -132,13 +135,13 @@ func testData() render.Data {
 	}
 }
 
-// TestValuesKeysMatchTheTemplates compares what the catalog says a resource
-// contributes against what its values fragment actually declares.
-//
-// Nothing at runtime reads ValuesKeys — the merge splits the fragment itself —
-// so the field had drifted: four workloads under-declared their keys and the
-// CronJob claimed an "affinity" its template never had. A field nothing checks
-// is a field that stops being true.
+// TestValuesKeysMatchTheTemplates closes the triangle between the three places
+// a resource's values keys are written down: this catalog, the values.yaml
+// fragment that actually contributes them, and the schema fragment that
+// describes them. Declaring a key in one or two of the three is the failure
+// this catches — most consequentially a key present in values.yaml but absent
+// from the schema, which Helm rejects the chart for on every render once the
+// chart has a values.schema.json.
 func TestValuesKeysMatchTheTemplates(t *testing.T) {
 	for _, r := range Resources() {
 		t.Run(r.Name, func(t *testing.T) {
@@ -146,13 +149,51 @@ func TestValuesKeysMatchTheTemplates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			declared, err := values.TopLevelKeys(raw)
+			fromValues, err := values.TopLevelKeys(raw)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(r.ValuesKeys, declared) {
-				t.Errorf("catalog ValuesKeys and values.yaml.tmpl disagree\n  catalog: %v\n  template: %v", r.ValuesKeys, declared)
+
+			rawSchema, err := render.ResourceSchema(r.Name, testData())
+			if err != nil {
+				t.Fatal(err)
+			}
+			fromSchema, err := schemaKeys(rawSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !slices.Equal(r.ValuesKeys, fromValues) {
+				t.Errorf("catalog ValuesKeys and values.yaml.tmpl disagree\n  catalog: %v\n  template: %v", r.ValuesKeys, fromValues)
+			}
+			if !slices.Equal(fromValues, fromSchema) {
+				t.Errorf("values.yaml.tmpl and schema.json.tmpl disagree\n  values: %v\n  schema: %v", fromValues, fromSchema)
 			}
 		})
 	}
+}
+
+// schemaKeys returns a schema fragment's top-level keys in document order.
+func schemaKeys(src []byte) ([]string, error) {
+	dec := json.NewDecoder(bytes.NewReader(src))
+	if _, err := dec.Token(); err != nil { // opening brace
+		return nil, err
+	}
+	var out []string
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return nil, fmt.Errorf("non-string key %v", tok)
+		}
+		var discard json.RawMessage
+		if err := dec.Decode(&discard); err != nil {
+			return nil, err
+		}
+		out = append(out, key)
+	}
+	return out, nil
 }

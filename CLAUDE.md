@@ -28,6 +28,7 @@ internal/render/    Embedded templates + renderer
   templates/chart/      Chart skeleton
   templates/resources/  One directory per resource
 internal/values/    Append-only values.yaml merge
+internal/schema/    values.schema.json assembly from resource fragments
 internal/chart/     Chart directory location and inspection
 internal/scaffold/  Plan construction and application
 internal/check/     helm render + house rules
@@ -53,13 +54,19 @@ These are load-bearing. Breaking one is a defect, not a style choice.
 
 **The catalog and the template tree are cross-checked both ways.** `internal/catalog` walks catalog → templates; `internal/render` walks templates → catalog. Adding a resource to only one fails one of the pair.
 
+**A resource's values keys are declared in three places and must agree.** `catalog.ValuesKeys`, the top-level keys of `values.yaml.tmpl`, and the top-level keys of `schema.json.tmpl` — same list, same order, enforced by `TestValuesKeysMatchTheTemplates`. This is not bookkeeping: Helm validates values against `values.schema.json` on every render, so a key in `values.yaml` that the schema does not describe stops the chart installing.
+
+**The generated schema is permissive on purpose.** Objects stay open; a scalar whose default is empty is typed as the union it actually accepts (`service.nodePort` takes string or integer). An incomplete schema is worse than none — it rejects values the templates handle fine. `--strict` closes the top level only, never a nested object, and `global` stays allowed so subcharts work.
+
+**`values.schema.json` is opt-in and generated, never hand-edited.** `hck new` writes one only under `--schema`; `hck add` regenerates one that exists and never introduces one that does not. Unlike `values.yaml`, it is rebuilt whole — it is an artifact, not a document someone maintains.
+
 <br/>
 
 ## Workflow After Code Changes
 
 1. **Tests first** — add or update tests, run `make test`. Coverage target is 90%+ excluding `cmd/main.go`.
 2. **Lint** — `golangci-lint run` must be clean.
-3. **End to end** — `hck new` every preset and `hck check` each one; a chart hck generates must pass hck's own check with no findings. `TestCheckRendersTheGeneratedChart` does this, and skips without helm.
+3. **End to end** — `hck new` every preset and `hck check` each one; a chart hck generates must pass hck's own check with no findings. `TestCheckRendersTheGeneratedChart` does this, and skips without helm. `TestHelmAcceptsTheGeneratedSchema` does the same for `--schema` and `--schema-strict`: only helm can prove the generated schema does not reject a chart it should accept.
 4. **Docs** — update `README.md` and `docs/` when the command surface or the resource catalog changes.
 
 <br/>

@@ -191,3 +191,69 @@ func TestTemplatePath(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestSchemaPath(t *testing.T) {
+	c, err := Load(writeChart(t, validMeta))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := filepath.Base(c.SchemaPath()), "values.schema.json"; got != want {
+		t.Errorf("SchemaPath base = %q, want %q", got, want)
+	}
+	if filepath.Dir(c.SchemaPath()) != c.Dir {
+		t.Errorf("SchemaPath is not inside the chart: %q", c.SchemaPath())
+	}
+}
+
+func TestSchemaMissingIsNotAnError(t *testing.T) {
+	c, err := Load(writeChart(t, validMeta))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.HasSchema() {
+		t.Error("HasSchema is true for a chart with no schema")
+	}
+	raw, err := c.Schema()
+	if err != nil {
+		t.Fatalf("a chart without a schema is legal: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("Schema returned %q, want nil", raw)
+	}
+}
+
+func TestSchemaRead(t *testing.T) {
+	c, err := Load(writeChart(t, validMeta))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const body = `{"type": "object"}`
+	if err := os.WriteFile(c.SchemaPath(), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !c.HasSchema() {
+		t.Error("HasSchema is false after the file was written")
+	}
+	raw, err := c.Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != body {
+		t.Errorf("Schema = %q, want %q", raw, body)
+	}
+}
+
+func TestSchemaReportsReadFailures(t *testing.T) {
+	c, err := Load(writeChart(t, validMeta))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A directory where the file belongs: present, so not ErrNotExist, but
+	// unreadable as a file.
+	if err := os.Mkdir(c.SchemaPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Schema(); err == nil {
+		t.Error("want an error when values.schema.json cannot be read")
+	}
+}

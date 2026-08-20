@@ -1,0 +1,28 @@
+{
+  "rbac": {
+    "type": "object",
+    "description": "Role or ClusterRole plus the matching binding. Namespaced by default — a ClusterRole grants the rule across every namespace in the cluster.",
+    "properties": {
+      "create": {
+        "type": "boolean",
+        "description": "Create the Role and its binding"
+      },
+      "clusterScoped": {
+        "type": "boolean",
+        "description": "Emit a ClusterRole and ClusterRoleBinding instead of the namespaced pair"
+      },
+      "rules": {
+        "type": "array",
+        "description": "Policy rules. Empty grants nothing, which is the right starting point.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "apiGroups": { "type": "array", "items": { "type": "string" } },
+            "resources": { "type": "array", "items": { "type": "string" } },
+            "verbs": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

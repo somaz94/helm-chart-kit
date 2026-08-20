@@ -1,0 +1,24 @@
+{
+  "serviceAccount": {
+    "type": "object",
+    "description": "ServiceAccount with annotations for cloud identity binding",
+    "properties": {
+      "create": {
+        "type": "boolean",
+        "description": "Create a ServiceAccount for the workload"
+      },
+      "automount": {
+        "type": "boolean",
+        "description": "Mount the ServiceAccount token into pods. Turn this off unless the workload actually calls the Kubernetes API — the token is a credential."
+      },
+      "annotations": {
+        "type": "object",
+        "description": "Annotations, e.g. an IAM role ARN for IRSA or Workload Identity"
+      },
+      "name": {
+        "type": "string",
+        "description": "Name to use. Defaults to the fullname template when create is true."
+      }
+    }
+  }
+}
