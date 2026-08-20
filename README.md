@@ -12,6 +12,11 @@
 > [Usage](docs/USAGE.md) |
 > [Resources](docs/RESOURCES.md) |
 > [Development](docs/DEVELOPMENT.md)
+>
+> 한국어: [README-ko.md](README-ko.md) |
+> [사용법](docs/USAGE-ko.md) |
+> [리소스](docs/RESOURCES-ko.md) |
+> [개발](docs/DEVELOPMENT-ko.md)
 
 <br/>
 
@@ -43,7 +48,7 @@ updated payments-api
 
 | | `helm create` | `hck` |
 |---|---|---|
-| **Resources it can emit** | 6, fixed | 20, composable |
+| **Resources it can emit** | 6, fixed | 29, composable |
 | **Adding one to an existing chart** | — | `hck add <resource>` |
 | **`values.yaml` on add** | — | Appended, existing bytes untouched |
 | **Documented values** | Sparse | Every key carries the reason it exists |
@@ -264,7 +269,7 @@ so the file carries only what is different:
 # values-aws.yaml
 serviceAccount:
   annotations:
-    # -- IAM role the pods assume, via IRSA or EKS Pod Identity.
+    # -- IAM role the pods assume, via IRSA.
     eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/payments-api
 
 ingress:
@@ -290,7 +295,7 @@ configuration right up until someone installs with it.
 |---|---|
 | `aws` | IRSA, ALB ingress, NLB services, gp3 volumes, zone spread, Secrets Manager |
 | `gcp` | Workload Identity, GCE ingress, NEG services, pd-balanced volumes, Secret Manager |
-| `azure` | Workload Identity (including the pod label everyone forgets), App Gateway, managed-csi, Key Vault |
+| `azure` | Workload Identity (including the pod label everyone forgets), Application Gateway, managed-csi, Key Vault |
 | `onprem` | ingress-nginx, MetalLB, a storage class you provide, Vault, private registry pull secrets |
 
 <br/>

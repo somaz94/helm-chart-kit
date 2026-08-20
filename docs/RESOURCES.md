@@ -1,5 +1,7 @@
 # Presets and resources
 
+> 한국어: [RESOURCES-ko.md](RESOURCES-ko.md) · Index: [README.md](../README.md)
+
 <br/>
 
 ## Presets

@@ -2,6 +2,8 @@
 
 Guide for building, testing, and contributing to this project.
 
+> 한국어: [DEVELOPMENT-ko.md](DEVELOPMENT-ko.md) · Index: [README.md](../README.md)
+
 <br/>
 
 ## Prerequisites
@@ -22,6 +24,7 @@ internal/catalog    What can be generated: resources and presets. Data only.
 internal/render     The embedded template set and the renderer.
 internal/values     The append-only values.yaml merge.
 internal/schema     Assembles values.schema.json from the resource fragments.
+internal/docs       values.yaml → Markdown table.
 internal/chart      Locating and inspecting a chart directory.
 internal/scaffold   Turns a request into a Plan; Apply writes it.
 internal/check      Renders via helm, then applies the house rules.
@@ -53,6 +56,19 @@ Three tests cross-check the catalog and the template tree, so declaring a resour
 That last one is the load-bearing one for the schema. Helm validates values against `values.schema.json` on every render, so a key present in `values.yaml` but missing from the schema does not go unnoticed — it stops the chart installing.
 
 A template that reads another resource's values must use the parenthesised form — `(.Values.autoscaling).enabled`, not `.Values.autoscaling.enabled` — because the other resource may not be in the chart at all. Sprig's `dig` does not work here: `.Values` is a `chartutil.Values`, not a `map[string]interface{}`.
+
+<br/>
+
+## The overlay axes
+
+Platform (`aws`/`gcp`/`azure`/`onprem`) and environment (`dev`/`staging`/`prod`) share one mechanism: fragments live at `templates/resources/<name>/values-<suffix>.yaml.tmpl` and `scaffold.buildOverlay` assembles them.
+
+**The two axes must not both claim a key.** A platform says how something is wired — an annotation, a class, a store reference. An environment says what is on and how big. Both become `-f` arguments, so a key both set is resolved by argument order rather than by intent. Two tests enforce it:
+
+- `TestPlatformOverlaysDoNotToggle` — no `*.enabled` in a platform overlay
+- `TestOverlayOrderDoesNotChangeTheRender` — all 12 pairs rendered both ways
+
+Where a platform genuinely cannot support something, that belongs in `Platform.Needs`.
 
 <br/>
 
@@ -115,6 +131,8 @@ make pr title="feat: add feature"   # Test → push → create PR (auto-generate
 | `dependabot-auto-merge.yml` | PR (dependabot) | Auto-merge minor/patch updates |
 | `issue-greeting.yml` | issue opened | Welcome message |
 
+<br/>
+
 ### Workflow Chain
 
 ```
@@ -130,3 +148,4 @@ tag push v* → Create release (GoReleaser)
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`, `chore:`)
 - **Secrets**: `PAT_TOKEN` (cross-repo ops), `GITHUB_TOKEN` (releases)
 - **paths-ignore**: `.github/workflows/**`, `**/*.md`
+- **Docs**: English is the source, `-ko.md` is the translation. Editing one means editing its pair in the same change

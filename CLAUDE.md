@@ -92,5 +92,7 @@ These are load-bearing. Breaking one is a defect, not a style choice.
 
 - Commits: Conventional Commits, single line, English, no `Co-Authored-By`
 - Code comments: English
-- Documentation: English only, `<br/>` between heading sections
+- Documentation: English is the source; every doc has a `-ko.md` Korean pair. `<br/>` between heading sections
+- **Editing one half of a doc pair means editing the other in the same change.** The pairs are `README.md` ↔ `README-ko.md` and `docs/{USAGE,RESOURCES,DEVELOPMENT}.md` ↔ their `-ko` siblings. Headings, code blocks, table rows and factual values (resource counts, HCK rule IDs, flag names and defaults) must match exactly — only prose differs. This overrides the global PrivateWork English-only rule, at the repo owner's request
+- Command examples, table cells holding identifiers, and `-- ` comments quoted from generated files stay in English in the Korean half too: they depict what the tool actually writes, and a reader who follows the Korean doc has to find the same text in the file
 - Do not edit `.goreleaser.yml`, `.github/workflows/release.yml` or `CHANGELOG.md` without asking — they are the release pipeline

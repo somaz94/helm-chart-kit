@@ -1,5 +1,7 @@
 # Usage
 
+> 한국어: [USAGE-ko.md](USAGE-ko.md) · Index: [README.md](../README.md)
+
 <br/>
 
 ## hck init
@@ -158,6 +160,8 @@ Helm validates the coalesced values against this file on **every** render, so th
 
 `--strict` is sticky: once a schema is written with it, `hck schema` and `hck add` both keep it that way. Pass `--strict=false` to drop it deliberately.
 
+<br/>
+
 ### Keeping it current
 
 A chart that has a schema must describe every key its `values.yaml` declares, or helm refuses the chart. Two things keep that true:
@@ -195,6 +199,8 @@ helm install payments-api . -f values-aws.yaml
 Only the resources the chart actually carries contribute. A `worker` chart gets the ServiceAccount annotation and no ingress class, because it has no Ingress; a chart with nothing platform-specific in it gets no file rather than one consisting of a header.
 
 `hck platform add` never overwrites an overlay that exists — edit it freely — unless `--force` is passed.
+
+<br/>
 
 ### Checking one
 
