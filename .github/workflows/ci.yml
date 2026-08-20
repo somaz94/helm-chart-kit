@@ -386,7 +386,26 @@ jobs:
           printf 'rules:\n  HCK013: off\n' > "$chart/.hck.yaml"
           check
           [[ "$out" != *"warn  HCK013"* ]] || { echo "FAIL: HCK013 is off and still reported"; exit 1; }
-          [[ "$out" == *"off in .hck.yaml"* ]] || { echo "FAIL: the report did not say what it skipped"; exit 1; }
+          [[ "$out" == *"not checked: HCK013"* ]] || { echo "FAIL: the report did not say what it skipped"; exit 1; }
+
+          # The wildcard reaches every rule that can be configured, a named ID
+          # beats it, and neither touches the one rule that is locked.
+          printf 'rules:\n  "*": off\n  HCK013: warn\n' > "$chart/.hck.yaml"
+          check
+          [[ "$out" == *"warn  HCK013"* ]] || { echo "FAIL: a named ID did not beat the wildcard"; exit 1; }
+          [[ "$out" != *"HCK001"* ]] || { echo "FAIL: the wildcard reached the locked rule"; exit 1; }
+          [[ "$out" == *"not checked: HCK002"* ]] || { echo "FAIL: the wildcard did not turn the rest off"; exit 1; }
+
+          # --off says the same thing for one run, layered over that file
+          # rather than replacing it, and refuses what the file refuses.
+          rm "$chart/.hck.yaml"
+          check --off HCK013
+          [[ "$out" != *"warn  HCK013"* ]] || { echo "FAIL: --off did not turn the rule off"; exit 1; }
+          [[ "$out" == *"not checked: HCK013"* ]] || { echo "FAIL: --off did not say what it skipped"; exit 1; }
+          check --off HCK001
+          [ "$status" -ne 0 ] || { echo "FAIL: --off HCK001 was accepted"; exit 1; }
+          check --off HCK999
+          [ "$status" -ne 0 ] || { echo "FAIL: --off with an unknown rule ID was accepted"; exit 1; }
 
           # Raised to an error, the same finding fails the check.
           printf 'rules:\n  HCK013: error\n' > "$chart/.hck.yaml"
@@ -605,6 +624,34 @@ jobs:
             echo "FAIL: --strict passed a chart with two workloads"
             exit 1
           fi
+
+          # hck new has the same hatch, and the same finding survives it.
+          hck new twoforced --dir "$workdir" --preset web --with daemonset --force
+          test -f "$workdir/twoforced/templates/daemonset.yaml" || {
+            echo "FAIL: hck new --force did not write the second workload"
+            exit 1
+          }
+          hck check --chart "$workdir/twoforced" | grep -q HCK030
+
+          # A directory that is not empty is refused, and --force fills it in
+          # rather than writing over it. Overwriting would take values.yaml
+          # with it, and values.yaml is never rewritten.
+          if hck new twoforced --dir "$workdir" --preset web; then
+            echo "FAIL: a directory that is not empty was accepted"
+            exit 1
+          fi
+          printf '\n# a line only this chart has\n' >> "$workdir/twoforced/values.yaml"
+          before=$(sha256sum < "$workdir/twoforced/values.yaml")
+          rm "$workdir/twoforced/templates/service.yaml"
+          hck new twoforced --dir "$workdir" --preset web --with daemonset --force | grep -q "already there"
+          test -f "$workdir/twoforced/templates/service.yaml" || {
+            echo "FAIL: --force did not put the missing template back"
+            exit 1
+          }
+          [ "$before" = "$(sha256sum < "$workdir/twoforced/values.yaml")" ] || {
+            echo "FAIL: hck new --force rewrote values.yaml"
+            exit 1
+          }
           echo "PASS: refused"
 
   ci-result:
