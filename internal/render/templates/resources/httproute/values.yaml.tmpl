@@ -1,0 +1,28 @@
+# =============================================================================
+# Gateway API HTTPRoute
+#
+# Requires the Gateway API CRDs and a Gateway the route can attach to. The
+# Gateway itself is cluster infrastructure and is deliberately not created by
+# this chart.
+# =============================================================================
+httpRoute:
+  # -- Create the HTTPRoute
+  enabled: false
+  # -- Annotations
+  annotations: {}
+  # -- Gateways this route attaches to. namespace is required whenever the
+  # Gateway lives outside the release namespace.
+  parentRefs:
+    - name: gateway
+      namespace: gateway-system
+      sectionName: https
+  # -- Hostnames matched by the route
+  hostnames:
+    - chart-example.local
+  # -- Routing rules. backendRefs defaults to this chart's own Service when
+  # left unset, which is what a single-service chart wants.
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /

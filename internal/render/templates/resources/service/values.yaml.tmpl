@@ -1,0 +1,22 @@
+# =============================================================================
+# Service
+# =============================================================================
+service:
+  # -- Service type: ClusterIP, NodePort or LoadBalancer
+  type: ClusterIP
+  # -- Publish with no cluster IP. Required for StatefulSet peer DNS.
+  headless: false
+  # -- Port exposed by the Service
+  port: 80
+  # -- Port on the pod the Service forwards to. A named port keeps the
+  # Service working when the container port moves.
+  targetPort: http
+  # -- Name of the Service port, referenced by Ingress and ServiceMonitor
+  portName: http
+  # -- Fixed node port. Only read when type is NodePort; leave empty to let
+  # the API server allocate one.
+  nodePort: ""
+  # -- Extra ports appended verbatim to the ports list
+  extraPorts: []
+  # -- Annotations, e.g. cloud load balancer configuration
+  annotations: {}

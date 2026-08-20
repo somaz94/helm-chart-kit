@@ -1,0 +1,70 @@
+# =============================================================================
+# CronJob
+# =============================================================================
+cronjob:
+  # -- Cron schedule
+  schedule: "0 * * * *"
+  # -- IANA time zone the schedule is read in. Without it the schedule follows
+  # whatever the kube-controller-manager is set to, which is rarely what the
+  # person who wrote the schedule meant.
+  timeZone: "UTC"
+  # -- Forbid skips a run while the previous one is still going; Allow lets
+  # them overlap; Replace kills the running one.
+  concurrencyPolicy: Forbid
+  # -- Stop scheduling without deleting the object
+  suspend: false
+  # -- Seconds a missed run may still start late
+  startingDeadlineSeconds: 300
+  # -- Completed Jobs kept
+  successfulJobsHistoryLimit: 3
+  # -- Failed Jobs kept
+  failedJobsHistoryLimit: 3
+  # -- Retries before the Job is marked failed
+  backoffLimit: 3
+  # -- Wall-clock seconds before a running Job is killed. Empty means no cap,
+  # which lets a hung run block every later one under Forbid.
+  activeDeadlineSeconds: 3600
+  # -- Never leaves a failed pod for inspection; OnFailure restarts in place
+  restartPolicy: Never
+  # -- Override the image entrypoint
+  command: []
+  # -- Override the image arguments
+  args: []
+
+# =============================================================================
+# Container Image
+# =============================================================================
+image:
+  repository: busybox
+  pullPolicy: IfNotPresent
+  # -- Required — the render fails when empty
+  tag: ""
+
+imagePullSecrets: []
+
+env: []
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []

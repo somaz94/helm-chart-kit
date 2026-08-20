@@ -1,0 +1,25 @@
+# =============================================================================
+# Ingress
+#
+# On a cluster running Gateway API, prefer `hck add httproute` — Ingress is
+# feature-frozen upstream and every non-trivial behaviour there lives in
+# controller-specific annotations.
+# =============================================================================
+ingress:
+  # -- Create the Ingress
+  enabled: false
+  # -- IngressClass name. Leave empty to use the cluster default.
+  className: ""
+  # -- Annotations, e.g. cert-manager issuer or controller tuning
+  annotations: {}
+  # -- Hosts and their paths
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS blocks, each pairing hosts with an existing Secret
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local

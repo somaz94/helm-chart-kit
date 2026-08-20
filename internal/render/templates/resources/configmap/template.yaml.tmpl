@@ -1,0 +1,13 @@
+{{- if .Values.configMap.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+data:
+  {{- range $k, $v := .Values.configMap.data }}
+  {{ $k }}: |
+    {{- tpl $v $ | nindent 4 }}
+  {{- end }}
+{{- end }}

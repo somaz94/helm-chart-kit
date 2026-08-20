@@ -1,0 +1,32 @@
+Release {{ .Release.Name }} of chart [[ .ChartName ]] is installed in namespace {{ .Release.Namespace }}.
+
+{{- if .Values.ingress }}
+{{- if .Values.ingress.enabled }}
+
+Reach it over Ingress:
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.httpRoute }}
+{{- if .Values.httpRoute.enabled }}
+
+Reach it over the Gateway API:
+{{- range .Values.httpRoute.hostnames }}
+  https://{{ . }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.service }}
+
+Port-forward to it locally:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "[[ .ChartName ]].fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+
+Watch the rollout:
+  kubectl --namespace {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w

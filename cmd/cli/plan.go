@@ -1,0 +1,63 @@
+package cli
+
+import (
+	"io"
+	"sort"
+	"strings"
+
+	"github.com/somaz94/helm-chart-kit/internal/scaffold"
+)
+
+// printPlan renders a plan as the list of files it touches plus the values
+// keys it appends. Skips are printed too — knowing a resource was already
+// there is the answer to "why did nothing happen".
+func printPlan(w io.Writer, p *scaffold.Plan, dryRun bool) {
+	c := newPainter(w)
+
+	verb := "wrote"
+	if dryRun {
+		verb = "would write"
+	}
+
+	files := make([]scaffold.File, len(p.Files))
+	copy(files, p.Files)
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+
+	for _, f := range files {
+		switch f.Action {
+		case scaffold.Create:
+			fprintf(w, "  %s  %s\n", c.green("+"), f.Path)
+		case scaffold.Update:
+			fprintf(w, "  %s  %s\n", c.yellow("~"), f.Path)
+		case scaffold.Skip:
+			fprintf(w, "  %s  %s %s\n", c.dim("."), c.dim(f.Path), c.dim("("+f.Reason+")"))
+		}
+	}
+
+	if len(p.ValuesAdded) > 0 {
+		fprintf(w, "\n  values.yaml %s: %s\n", verb, strings.Join(p.ValuesAdded, ", "))
+	}
+	if len(p.ValuesSkipped) > 0 {
+		fprintf(w, "  values.yaml kept as-is: %s\n", c.dim(strings.Join(p.ValuesSkipped, ", ")))
+	}
+
+	if len(p.Notes) > 0 {
+		fprintf(w, "\n")
+		for _, n := range dedupe(p.Notes) {
+			fprintf(w, "  %s %s\n", c.yellow("note:"), n)
+		}
+	}
+}
+
+func dedupe(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}

@@ -1,0 +1,31 @@
+# =============================================================================
+# Job
+#
+# With hook.enabled the Job runs as a Helm hook — a migration that must finish
+# before the workload rolls. Note that a hook Job is not part of the release
+# manifest, so `helm rollback` will not undo what it did.
+# =============================================================================
+job:
+  # -- Create the Job
+  enabled: false
+  # -- Name suffix, also the container name
+  name: migrate
+  # -- Retries before the Job is marked failed
+  backoffLimit: 3
+  # -- Seconds the finished Job object is kept before the TTL controller
+  # deletes it. Empty keeps it forever.
+  ttlSecondsAfterFinished: 600
+  # -- Override the image entrypoint
+  command: []
+  # -- Override the image arguments
+  args: []
+  hook:
+    # -- Run as a Helm hook rather than an ordinary release resource
+    enabled: false
+    # -- Comma-separated hook events
+    events: "pre-install,pre-upgrade"
+    # -- Lower weights run first
+    weight: "-5"
+    # -- before-hook-creation clears the previous Job so a re-run is not
+    # rejected for touching an immutable field
+    deletePolicy: before-hook-creation

@@ -1,0 +1,29 @@
+# =============================================================================
+# External Secret
+#
+# Requires External Secrets Operator and a SecretStore or ClusterSecretStore
+# the release namespace is allowed to read.
+# =============================================================================
+externalSecret:
+  # -- Create the ExternalSecret
+  enabled: false
+  # -- How often the operator re-reads the provider
+  refreshInterval: 1h
+  secretStoreRef:
+    # -- Store to read from
+    name: default
+    # -- SecretStore (namespaced) or ClusterSecretStore
+    kind: ClusterSecretStore
+  target:
+    # -- Name of the Secret to create. Defaults to the chart fullname.
+    name: ""
+    # -- Owner keeps the Secret bound to the ExternalSecret lifecycle
+    creationPolicy: Owner
+  # -- Explicit key mapping
+  data: []
+  #  - secretKey: password
+  #    remoteRef:
+  #      key: prod/app
+  #      property: password
+  # -- Pull every key from a remote path
+  dataFrom: []

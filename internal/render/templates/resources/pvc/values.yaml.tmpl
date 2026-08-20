@@ -1,0 +1,17 @@
+# =============================================================================
+# Persistence
+# =============================================================================
+persistence:
+  # -- Create the PersistentVolumeClaim
+  enabled: false
+  # -- Use an existing claim instead of creating one
+  existingClaim: ""
+  # -- StorageClass. Empty uses the cluster default.
+  storageClass: ""
+  # -- Access modes
+  accessModes:
+    - ReadWriteOnce
+  # -- Requested size
+  size: 8Gi
+  # -- Keep the claim when the release is uninstalled
+  retain: true

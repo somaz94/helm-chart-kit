@@ -1,0 +1,125 @@
+version: 2
+
+# Names the release archives. Set it explicitly: it defaults to the repository
+# name, which is not always the binary name, and scripts/install.sh builds its
+# download URL from this rather than from the binary.
+project_name: helm-chart-kit
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/main.go
+    binary: hck
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/somaz94/helm-chart-kit/cmd/cli.Version={{.Version}}
+      - -X github.com/somaz94/helm-chart-kit/cmd/cli.GitCommit={{.Commit}}
+      - -X github.com/somaz94/helm-chart-kit/cmd/cli.BuildDate={{.Date}}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  groups:
+    - title: "Features"
+      regexp: '^feat'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^fix'
+      order: 1
+    - title: "Performance"
+      regexp: '^perf'
+      order: 2
+    - title: "Refactoring"
+      regexp: '^refactor'
+      order: 3
+    - title: "Build"
+      regexp: '^build'
+      order: 4
+    - title: "Other Changes"
+      order: 999
+  filters:
+    exclude:
+      - '^docs: update changelog'
+      - '^docs: update CONTRIBUTORS'
+      - '^Merge'
+      - '^Auto commit'
+
+release:
+  github:
+    owner: somaz94
+    name: helm-chart-kit
+  draft: false
+  prerelease: auto
+
+# Homebrew. A cask, not a formula: GoReleaser deprecated "brews" in v2.10 and
+# documents removal in v2.16, and releases here pin no GoReleaser version.
+#
+# Casks work on Linux as well, despite the documentation being written for
+# macOS — one whose only artifact is a binary installs there the same way.
+#
+# If you are converting an existing project that already shipped a formula,
+# Homebrew treats the two as separate packages: users have to run
+# "brew uninstall --formula <name>" before installing the cask, or the cask's
+# binary is not linked and the old one keeps running. Drop the old .rb from the
+# tap and add tap_migrations.json *after* the first cask release, not before.
+homebrew_casks:
+  - name: helm-chart-kit
+    binaries:
+      - hck
+    directory: Casks
+    repository:
+      owner: somaz94
+      name: homebrew-tap
+    homepage: "https://github.com/somaz94/helm-chart-kit"
+    description: "Scaffold Helm charts and add resources to existing ones"
+    hooks:
+      post:
+        # Homebrew quarantines cask downloads. Unless the binary is signed and
+        # notarized, macOS refuses to run it without this.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/hck"]
+          end
+    caveats: |
+      hck installed!
+
+      Quick start:
+        hck new my-app             # Scaffold a chart from the web preset
+        hck add servicemonitor     # Add a resource to an existing chart
+        hck check                  # Render it and apply the house rules
+        hck list                   # Every preset and resource
+        hck --help                 # Full usage
+
+      hck check shells out to helm, so install helm for that subcommand.
+
+      Docs: https://github.com/somaz94/helm-chart-kit
+
+scoops:
+  - repository:
+      owner: somaz94
+      name: scoop-bucket
+    homepage: "https://github.com/somaz94/helm-chart-kit"
+    description: "Scaffold Helm charts and add resources to existing ones"
+    license: "Apache-2.0"

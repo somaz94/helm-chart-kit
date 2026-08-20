@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.github/workflows/**'
+      - '**/*.md'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      # Without helm on PATH the render-path tests skip, so CI would be green
+      # while never once checking that a generated chart actually renders.
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.1
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code go.mod go.sum; then
+            echo "FAIL: go.mod or go.sum is not tidy"
+            exit 1
+          fi
+          echo "PASS: go.mod is tidy"
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run go fmt check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Code is not formatted. Run 'go fmt ./...'"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Run tests with coverage
+        run: go test ./... -v -race -cover -coverprofile=coverage.out
+
+      - name: Display coverage summary
+        run: go tool cover -func=coverage.out
+
+  build:
+    name: Build
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Build binary
+        run: make build
+
+      - name: Verify version
+        run: ./bin/hck version
+
+  e2e:
+    name: End to End
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.1
+
+      - name: Build
+        run: make build
+
+      # Every preset must produce a chart that passes hck's own check with no
+      # findings, and must keep passing after a resource is added to it.
+      - name: Scaffold and check every preset
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          for preset in web worker cronjob stateful; do
+            echo "::group::$preset"
+            hck new "$preset" --dir "$workdir" --preset "$preset"
+            hck check --chart "$workdir/$preset" --strict
+            echo "::endgroup::"
+          done
+
+      - name: Add resources to an existing chart
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new demo --dir "$workdir"
+          chart="$workdir/demo"
+
+          cp "$chart/values.yaml" /tmp/values.before
+          hck add servicemonitor prometheusrule externalsecret pvc rbac --chart "$chart"
+          hck check --chart "$chart" --strict
+
+          # The bytes that were there before must still be there, unchanged.
+          before=$(wc -c < /tmp/values.before)
+          head -c "$before" "$chart/values.yaml" > /tmp/values.prefix
+          cmp /tmp/values.before /tmp/values.prefix
+
+          # And a repeat must change nothing at all.
+          cp "$chart/values.yaml" /tmp/values.once
+          hck add servicemonitor --chart "$chart"
+          cmp /tmp/values.once "$chart/values.yaml"
+
+      - name: Refuse a second workload
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new demo --dir "$workdir"
+          if hck add statefulset --chart "$workdir/demo"; then
+            echo "FAIL: a second workload was accepted"
+            exit 1
+          fi
+          echo "PASS: refused"
+
+  ci-result:
+    name: CI Result
+    if: always()
+    needs:
+      - unit-tests
+      - build
+      - e2e
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') }}" = "true" ] || \
+             [ "${{ contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "[FAIL] Some jobs failed or were cancelled"
+            exit 1
+          fi
+          echo "[PASS] All CI jobs passed"

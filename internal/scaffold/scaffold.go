@@ -1,0 +1,380 @@
+// Package scaffold turns a request — create this chart, add these resources —
+// into a plan of file writes, and applies it.
+//
+// Planning and applying are separate so that --dry-run shows exactly what a
+// real run would do rather than an approximation of it, and so the interesting
+// decisions stay testable without touching a disk.
+package scaffold
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/somaz94/helm-chart-kit/internal/catalog"
+	"github.com/somaz94/helm-chart-kit/internal/chart"
+	"github.com/somaz94/helm-chart-kit/internal/render"
+	"github.com/somaz94/helm-chart-kit/internal/values"
+)
+
+// Action is what the plan does to one file.
+type Action string
+
+const (
+	// Create writes a file that does not exist yet.
+	Create Action = "create"
+	// Update rewrites an existing file — only ever values.yaml, and only by
+	// appending to it.
+	Update Action = "update"
+	// Skip leaves an existing file alone.
+	Skip Action = "skip"
+)
+
+// File is one entry in a plan.
+type File struct {
+	// Path is relative to the chart directory.
+	Path    string
+	Action  Action
+	Content []byte
+	// Reason explains a Skip.
+	Reason string
+}
+
+// Plan is the full set of changes a command would make.
+type Plan struct {
+	// ChartDir is the chart root, absolute.
+	ChartDir string
+	// NewChart is true when the plan creates the chart directory itself.
+	NewChart bool
+	Files    []File
+	// ValuesAdded and ValuesSkipped are top-level values.yaml keys.
+	ValuesAdded   []string
+	ValuesSkipped []string
+	// Notes are advisories worth printing: unmet requirements, resources
+	// needing a CRD.
+	Notes []string
+}
+
+// Changed reports whether applying the plan would write anything.
+func (p *Plan) Changed() bool {
+	for _, f := range p.Files {
+		if f.Action != Skip {
+			return true
+		}
+	}
+	return false
+}
+
+// chartNameRE is the Helm chart name constraint: a lowercase DNS label,
+// optionally dotted. Rejecting it here beats a `helm lint` failure later.
+var chartNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
+
+// ValidateName checks a chart name against Helm's own constraint.
+func ValidateName(name string) error {
+	switch {
+	case name == "":
+		return errors.New("chart name is empty")
+	case len(name) > 63:
+		return fmt.Errorf("chart name %q is longer than 63 characters", name)
+	case !chartNameRE.MatchString(name):
+		return fmt.Errorf("chart name %q must be lowercase alphanumeric, and may contain '-', '_' and '.'", name)
+	}
+	return nil
+}
+
+// NewOptions describes a chart to create.
+type NewOptions struct {
+	// Parent is the directory the chart directory is created in.
+	Parent string
+	// Name is the chart name and its directory name.
+	Name string
+	// Description goes into Chart.yaml.
+	Description string
+	// Version is the chart version.
+	Version string
+	// AppVersion is the deployed application's version.
+	AppVersion string
+	// Preset names the resource set to seed with.
+	Preset string
+	// Extra are resources added on top of the preset.
+	Extra []string
+}
+
+// PlanNew builds the plan for creating a chart.
+func PlanNew(opts NewOptions) (*Plan, error) {
+	if err := ValidateName(opts.Name); err != nil {
+		return nil, err
+	}
+	preset, ok := catalog.LookupPreset(opts.Preset)
+	if !ok {
+		return nil, fmt.Errorf("unknown preset %q (known: %s)", opts.Preset, strings.Join(catalog.PresetNames(), ", "))
+	}
+
+	resources, err := resolve(append(append([]string{}, preset.Resources...), opts.Extra...))
+	if err != nil {
+		return nil, err
+	}
+
+	dir, err := filepath.Abs(filepath.Join(opts.Parent, opts.Name))
+	if err != nil {
+		return nil, err
+	}
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
+		return nil, fmt.Errorf("%s already exists and is not empty", dir)
+	}
+
+	data := render.Data{
+		ChartName:   opts.Name,
+		Description: opts.Description,
+		Version:     opts.Version,
+		AppVersion:  opts.AppVersion,
+		Preset:      opts.Preset,
+		Resources:   names(resources),
+	}
+
+	plan := &Plan{ChartDir: dir, NewChart: true}
+
+	skeleton, err := render.ChartFiles()
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(skeleton)
+
+	var baseValues []byte
+	for _, name := range skeleton {
+		content, err := render.ChartFile(name, data)
+		if err != nil {
+			return nil, err
+		}
+		if name == "values.yaml" {
+			baseValues = content
+			continue // appended below, after the fragments are merged in
+		}
+		plan.Files = append(plan.Files, File{Path: outputName(name), Action: Create, Content: content})
+	}
+
+	frags := make([]values.Fragment, 0, len(resources))
+	for _, r := range resources {
+		tmpl, err := render.ResourceTemplate(r.Name, data)
+		if err != nil {
+			return nil, err
+		}
+		plan.Files = append(plan.Files, File{
+			Path:    filepath.ToSlash(filepath.Join("templates", r.File)),
+			Action:  Create,
+			Content: tmpl,
+		})
+		frag, err := render.ResourceValues(r.Name, data)
+		if err != nil {
+			return nil, err
+		}
+		frags = append(frags, values.Fragment{Resource: r.Name, Body: string(frag)})
+		if r.Optional {
+			plan.Notes = append(plan.Notes, fmt.Sprintf("%s needs a CRD the cluster may not have (%s)", r.Name, r.APIVersion))
+		}
+	}
+
+	merged, res, err := values.Merge(baseValues, frags)
+	if err != nil {
+		return nil, err
+	}
+	plan.ValuesAdded, plan.ValuesSkipped = res.Added, res.Skipped
+	plan.Files = append(plan.Files, File{Path: "values.yaml", Action: Create, Content: merged})
+
+	return plan, nil
+}
+
+// PlanAdd builds the plan for adding resources to an existing chart.
+func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
+	resources, err := resolve(requested)
+	if err != nil {
+		return nil, err
+	}
+
+	existingTemplates, err := c.TemplateFiles()
+	if err != nil {
+		return nil, err
+	}
+	if !force {
+		if err := checkSingleWorkload(resources, existingTemplates); err != nil {
+			return nil, err
+		}
+	}
+
+	data := render.Data{
+		ChartName:   c.Meta.Name,
+		Description: c.Meta.Description,
+		Version:     c.Meta.Version,
+		AppVersion:  c.Meta.AppVersion,
+		Preset:      c.Meta.Annotations["helm-chart-kit/preset"],
+		Resources:   names(resources),
+	}
+
+	plan := &Plan{ChartDir: c.Dir}
+	present := presentResources(existingTemplates)
+
+	frags := make([]values.Fragment, 0, len(resources))
+	for _, r := range resources {
+		if c.HasTemplate(r.File) && !force {
+			plan.Files = append(plan.Files, File{
+				Path:   filepath.ToSlash(filepath.Join("templates", r.File)),
+				Action: Skip,
+				Reason: "already exists",
+			})
+			continue
+		}
+		tmpl, err := render.ResourceTemplate(r.Name, data)
+		if err != nil {
+			return nil, err
+		}
+		action := Create
+		if c.HasTemplate(r.File) {
+			action = Update
+		}
+		plan.Files = append(plan.Files, File{
+			Path:    filepath.ToSlash(filepath.Join("templates", r.File)),
+			Action:  action,
+			Content: tmpl,
+		})
+		frag, err := render.ResourceValues(r.Name, data)
+		if err != nil {
+			return nil, err
+		}
+		frags = append(frags, values.Fragment{Resource: r.Name, Body: string(frag)})
+
+		for _, req := range r.Requires {
+			if !present[req] && !contains(names(resources), req) {
+				plan.Notes = append(plan.Notes,
+					fmt.Sprintf("%s expects %s, which this chart does not have — run: hck add %s", r.Name, req, req))
+			}
+		}
+		if r.Optional {
+			plan.Notes = append(plan.Notes, fmt.Sprintf("%s needs a CRD the cluster may not have (%s)", r.Name, r.APIVersion))
+		}
+	}
+
+	current, err := c.Values()
+	if err != nil {
+		return nil, err
+	}
+	merged, res, err := values.Merge(current, frags)
+	if err != nil {
+		return nil, err
+	}
+	plan.ValuesAdded, plan.ValuesSkipped = res.Added, res.Skipped
+	if res.Changed() {
+		plan.Files = append(plan.Files, File{Path: "values.yaml", Action: Update, Content: merged})
+	} else {
+		plan.Files = append(plan.Files, File{Path: "values.yaml", Action: Skip, Reason: "no new keys"})
+	}
+
+	return plan, nil
+}
+
+// Apply writes the plan to disk.
+func Apply(p *Plan) error {
+	for _, f := range p.Files {
+		if f.Action == Skip {
+			continue
+		}
+		dest := filepath.Join(p.ChartDir, filepath.FromSlash(f.Path))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
+		}
+		if err := os.WriteFile(dest, f.Content, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", dest, err)
+		}
+	}
+	return nil
+}
+
+// resolve maps names to catalog resources, dropping duplicates and keeping
+// the order they were asked for.
+func resolve(requested []string) ([]catalog.Resource, error) {
+	seen := map[string]bool{}
+	out := make([]catalog.Resource, 0, len(requested))
+	for _, name := range requested {
+		if seen[name] {
+			continue
+		}
+		r, ok := catalog.LookupResource(name)
+		if !ok {
+			return nil, fmt.Errorf("unknown resource %q (see: hck list resources)", name)
+		}
+		seen[name] = true
+		out = append(out, r)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no resources requested")
+	}
+	return out, nil
+}
+
+// checkSingleWorkload refuses a second primary workload in one chart.
+func checkSingleWorkload(adding []catalog.Resource, existingTemplates []string) error {
+	present := presentResources(existingTemplates)
+	var have []string
+	for _, r := range catalog.Resources() {
+		if r.Workload && present[r.Name] {
+			have = append(have, r.Name)
+		}
+	}
+	if len(have) == 0 {
+		return nil
+	}
+	for _, r := range adding {
+		if r.Workload {
+			return fmt.Errorf(
+				"chart already has the %s workload; adding %s would give it two, and they contend for the same values keys with incompatible shapes. Split it into two charts, or pass --force if you really mean it",
+				strings.Join(have, " and "), r.Name)
+		}
+	}
+	return nil
+}
+
+// presentResources maps catalog names to whether the chart carries their file.
+func presentResources(templateFiles []string) map[string]bool {
+	byFile := map[string]string{}
+	for _, r := range catalog.Resources() {
+		byFile[r.File] = r.Name
+	}
+	out := map[string]bool{}
+	for _, f := range templateFiles {
+		if name, ok := byFile[f]; ok {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// outputName maps an embedded skeleton file to its name in the chart. The
+// leading dot is dropped in the embedded tree because go:embed skips dotfiles
+// unless the pattern opts back in, and an "all:" pattern would also drag in
+// editor droppings.
+func outputName(name string) string {
+	if name == "helmignore" {
+		return ".helmignore"
+	}
+	return name
+}
+
+func names(rs []catalog.Resource) []string {
+	out := make([]string, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, r.Name)
+	}
+	return out
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}

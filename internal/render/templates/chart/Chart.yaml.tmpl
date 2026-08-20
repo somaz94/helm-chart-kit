@@ -1,0 +1,14 @@
+apiVersion: v2
+name: [[ .ChartName ]]
+description: [[ .Description ]]
+type: application
+
+# version is the chart's own version and moves on every chart change.
+version: [[ .Version ]]
+
+# appVersion is the version of the application the chart deploys. Quoted
+# because image tags like 1.20 are not valid YAML numbers.
+appVersion: "[[ .AppVersion ]]"
+
+annotations:
+  helm-chart-kit/preset: "[[ .Preset ]]"

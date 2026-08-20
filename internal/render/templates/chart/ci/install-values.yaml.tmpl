@@ -1,0 +1,12 @@
+# =============================================================================
+# CI install values
+#
+# The smallest set of overrides that makes the chart render and install. Used
+# by `hck check` and by chart-testing (ct) in CI.
+#
+# .helmignore excludes this directory, so it never reaches a packaged chart.
+# =============================================================================
+image:
+  # -- Placeholder so the chart renders; image.tag has no default on purpose.
+  # Point this at a tag that actually exists before wiring up a ct install.
+  tag: "0.1.0"

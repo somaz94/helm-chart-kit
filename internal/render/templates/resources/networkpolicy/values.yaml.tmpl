@@ -1,0 +1,24 @@
+# =============================================================================
+# Network Policy
+#
+# Rendering both policyTypes with empty rule lists is a default-deny: an empty
+# ingress list denies all inbound, an empty egress list denies all outbound.
+# Add rules below to open specific paths.
+# =============================================================================
+networkPolicy:
+  # -- Create the NetworkPolicy
+  enabled: false
+  # -- Emit the kube-system DNS egress rule. Leave on unless the workload
+  # genuinely never resolves a name.
+  allowDNS: true
+  # -- Inbound rules, appended verbatim
+  ingress: []
+  #  - from:
+  #      - namespaceSelector:
+  #          matchLabels:
+  #            kubernetes.io/metadata.name: ingress-nginx
+  #    ports:
+  #      - protocol: TCP
+  #        port: 8080
+  # -- Outbound rules, appended verbatim after the DNS rule
+  egress: []

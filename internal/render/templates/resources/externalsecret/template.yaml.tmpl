@@ -1,0 +1,24 @@
+{{- if .Values.externalSecret.enabled -}}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  refreshInterval: {{ .Values.externalSecret.refreshInterval }}
+  secretStoreRef:
+    name: {{ .Values.externalSecret.secretStoreRef.name }}
+    kind: {{ .Values.externalSecret.secretStoreRef.kind }}
+  target:
+    name: {{ .Values.externalSecret.target.name | default (include "[[ .ChartName ]].fullname" .) }}
+    creationPolicy: {{ .Values.externalSecret.target.creationPolicy }}
+  {{- with .Values.externalSecret.data }}
+  data:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.externalSecret.dataFrom }}
+  dataFrom:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,22 @@
+# =============================================================================
+# Helm Tests
+#
+# Run with `helm test <release>`.
+# =============================================================================
+tests:
+  # -- Render the test hook
+  enabled: true
+  # -- Image used by the connection test
+  image: busybox:1.37
+  # -- Path requested against the Service
+  path: /
+  # -- Seconds before the probe gives up
+  timeoutSeconds: 5
+  # -- Resources for the test pod. Small, but set: an unbounded test pod is
+  # still a pod the scheduler has to place.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      memory: 32Mi

@@ -1,0 +1,13 @@
+# =============================================================================
+# Service Account
+# =============================================================================
+serviceAccount:
+  # -- Create a ServiceAccount for the workload
+  create: true
+  # -- Mount the ServiceAccount token into pods. Turn this off unless the
+  # workload actually calls the Kubernetes API — the token is a credential.
+  automount: false
+  # -- Annotations, e.g. an IAM role ARN for IRSA or Workload Identity
+  annotations: {}
+  # -- Name to use. Defaults to the fullname template when create is true.
+  name: ""

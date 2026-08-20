@@ -1,0 +1,53 @@
+# =============================================================================
+# Workload
+# =============================================================================
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
+image:
+  repository: nginx
+  pullPolicy: IfNotPresent
+  # -- Required — the render fails when empty
+  tag: ""
+
+imagePullSecrets: []
+
+# -- Share the node network namespace. Needed by node agents that bind a host
+# port or read host-level network state.
+hostNetwork: false
+
+env: []
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+nodeSelector: {}
+volumes: []
+volumeMounts: []
+
+# -- A DaemonSet is expected to cover every node, control-plane nodes
+# included. Trim this list to keep it off a node class.
+tolerations:
+  - operator: Exists

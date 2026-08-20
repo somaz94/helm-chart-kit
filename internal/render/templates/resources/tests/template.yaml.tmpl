@@ -1,0 +1,35 @@
+{{- if .Values.tests.enabled -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}-test-connection
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: wget
+      image: {{ .Values.tests.image }}
+      command:
+        - wget
+      args:
+        - "--spider"
+        - "--timeout={{ .Values.tests.timeoutSeconds }}"
+        - "{{ include "[[ .ChartName ]].fullname" . }}:{{ .Values.service.port }}{{ .Values.tests.path }}"
+      resources:
+        {{- toYaml .Values.tests.resources | nindent 8 }}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+{{- end }}

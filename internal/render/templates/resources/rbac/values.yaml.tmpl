@@ -1,0 +1,17 @@
+# =============================================================================
+# RBAC
+#
+# Namespaced by default. A ClusterRole grants the rule across every namespace
+# in the cluster, so turn clusterScoped on only when the workload genuinely
+# watches cluster-wide.
+# =============================================================================
+rbac:
+  # -- Create the Role and its binding
+  create: false
+  # -- Emit a ClusterRole and ClusterRoleBinding instead of the namespaced pair
+  clusterScoped: false
+  # -- Policy rules. Empty grants nothing, which is the right starting point.
+  rules: []
+  #  - apiGroups: [""]
+  #    resources: ["configmaps"]
+  #    verbs: ["get", "list", "watch"]

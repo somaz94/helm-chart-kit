@@ -1,0 +1,24 @@
+# =============================================================================
+# Prometheus Rules
+#
+# Rules are rendered through `tpl`, so expressions may reference .Release and
+# .Values — which is how an alert scopes itself to this release instead of
+# firing for every copy of the chart in the cluster.
+# =============================================================================
+prometheusRule:
+  # -- Create the PrometheusRule
+  enabled: false
+  # -- Namespace to create it in. Empty uses the release namespace.
+  namespace: ""
+  # -- Labels the Prometheus resource selects on
+  additionalLabels: {}
+  # -- Alert and recording rules
+  rules: []
+  #  - alert: PodCrashLooping
+  #    expr: |
+  #      rate(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}"}[10m]) > 0
+  #    for: 10m
+  #    labels:
+  #      severity: warning
+  #    annotations:
+  #      summary: Pod is restarting repeatedly

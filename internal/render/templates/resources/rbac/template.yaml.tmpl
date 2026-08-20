@@ -1,0 +1,25 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ if .Values.rbac.clusterScoped }}ClusterRole{{ else }}Role{{ end }}
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ if .Values.rbac.clusterScoped }}ClusterRoleBinding{{ else }}RoleBinding{{ end }}
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ if .Values.rbac.clusterScoped }}ClusterRole{{ else }}Role{{ end }}
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "[[ .ChartName ]].serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

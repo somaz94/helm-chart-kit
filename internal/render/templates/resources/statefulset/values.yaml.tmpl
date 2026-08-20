@@ -1,0 +1,93 @@
+# =============================================================================
+# Workload
+# =============================================================================
+
+# -- Number of replicas
+replicaCount: 3
+
+# -- Parallel starts every pod at once; OrderedReady waits for each to become
+# ready before starting the next. Ordered is the safe default for a quorum
+# system that has to bootstrap in sequence.
+podManagementPolicy: OrderedReady
+
+# -- Rollout strategy
+updateStrategy:
+  type: RollingUpdate
+
+# -- Seconds a pod gets to shut down before SIGKILL. Raise it for a database
+# that must flush on the way out.
+terminationGracePeriodSeconds: 60
+
+# =============================================================================
+# Container Image
+# =============================================================================
+image:
+  repository: nginx
+  pullPolicy: IfNotPresent
+  # -- Required — the render fails when empty
+  tag: ""
+
+imagePullSecrets: []
+
+containerPort: 8080
+
+env: []
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+livenessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+nodeSelector: {}
+affinity: {}
+tolerations: []
+volumes: []
+volumeMounts: []
+
+# =============================================================================
+# Persistence
+#
+# Rendered as volumeClaimTemplates, so every replica gets its own volume.
+# =============================================================================
+persistence:
+  # -- Attach a per-replica volume
+  enabled: true
+  # -- Where the volume is mounted in the container
+  mountPath: /data
+  # -- StorageClass. Empty uses the cluster default.
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi

@@ -1,0 +1,16 @@
+# =============================================================================
+# Pod Disruption Budget
+#
+# Only minAvailable or maxUnavailable is rendered, never both — the API
+# rejects a PDB carrying the two. minAvailable wins when it is set.
+#
+# A single-replica workload with minAvailable: 1 blocks node drains
+# indefinitely. Use maxUnavailable: 1 there instead.
+# =============================================================================
+podDisruptionBudget:
+  # -- Create the PodDisruptionBudget
+  enabled: false
+  # -- Minimum pods that must stay available. Count or percentage.
+  minAvailable: ""
+  # -- Maximum pods that may go down at once
+  maxUnavailable: 1

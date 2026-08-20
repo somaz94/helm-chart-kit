@@ -1,0 +1,16 @@
+name: Generate Contributors
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Generate changelog"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  update_contributors:
+    uses: somaz94/.github/.github/workflows/contributors-reusable.yml@main
+    secrets: inherit

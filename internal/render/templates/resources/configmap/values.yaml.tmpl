@@ -1,0 +1,15 @@
+# =============================================================================
+# ConfigMap
+#
+# Every value is run through `tpl`, so entries may reference .Release and
+# .Values. The workload template hashes this file into a pod annotation, which
+# is what makes a config-only change actually restart the pods.
+# =============================================================================
+configMap:
+  # -- Create the ConfigMap
+  enabled: false
+  # -- File name to file content. Values are multi-line strings.
+  data: {}
+  #  app.conf: |
+  #    listen = 0.0.0.0:8080
+  #    release = {{ .Release.Name }}

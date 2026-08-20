@@ -1,0 +1,27 @@
+# =============================================================================
+# Metrics
+#
+# Requires the Prometheus Operator CRDs. additionalLabels usually has to carry
+# whatever label the Prometheus resource selects ServiceMonitors by — without
+# it the object is created and quietly never scraped.
+# =============================================================================
+metrics:
+  serviceMonitor:
+    # -- Create the ServiceMonitor
+    enabled: false
+    # -- Namespace to create it in. Empty uses the release namespace.
+    namespace: ""
+    # -- Labels the Prometheus resource selects on
+    additionalLabels: {}
+    # -- Name of the Service port to scrape
+    port: http
+    # -- Metrics path
+    path: /metrics
+    # -- Scrape interval
+    interval: 30s
+    # -- Scrape timeout. Must stay below interval.
+    scrapeTimeout: 10s
+    # -- Relabel rules applied before the scrape
+    relabelings: []
+    # -- Relabel rules applied to scraped samples
+    metricRelabelings: []

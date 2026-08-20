@@ -1,0 +1,24 @@
+# =============================================================================
+# Horizontal Pod Autoscaler
+#
+# While enabled, replicaCount is not rendered — the HPA owns the replica count
+# and a chart that also sets it would fight the controller on every upgrade.
+# =============================================================================
+autoscaling:
+  # -- Create the HorizontalPodAutoscaler
+  enabled: false
+  # -- Kind of the scale target: Deployment or StatefulSet
+  targetKind: Deployment
+  # -- Lower bound
+  minReplicas: 2
+  # -- Upper bound
+  maxReplicas: 10
+  # -- Target average CPU utilization. Set to null to drop the CPU metric.
+  targetCPUUtilizationPercentage: 80
+  # -- Target average memory utilization. Null by default: memory rarely falls
+  # back after a spike, so scaling on it tends to ratchet up and stay there.
+  targetMemoryUtilizationPercentage: null
+  # -- Extra metrics appended verbatim, e.g. an external queue depth
+  extraMetrics: []
+  # -- Scale-up and scale-down behaviour
+  behavior: {}
