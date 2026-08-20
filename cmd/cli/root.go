@@ -33,6 +33,7 @@ there.`,
 		newCheckCmd(),
 		newDocsCmd(),
 		newPlatformCmd(),
+		newEnvCmd(),
 		newSchemaCmd(),
 		newVersionCmd(),
 	)

@@ -228,13 +228,16 @@ func schemaKeys(src []byte) ([]string, error) {
 // the templates. A fragment named values-<x>.yaml.tmpl for an <x> nobody
 // declared renders for no one and would sit there unnoticed.
 func TestPlatformOverlaysMatchTheCatalog(t *testing.T) {
-	found, err := render.PlatformsWithValues()
+	found, err := render.OverlaySuffixes()
 	if err != nil {
 		t.Fatal(err)
 	}
 	known := map[string]bool{}
 	for _, p := range Platforms() {
 		known[p.Name] = true
+	}
+	for _, e := range Environments() {
+		known[e.Name] = true
 	}
 	for _, name := range found {
 		if !known[name] {
@@ -247,6 +250,45 @@ func TestPlatformOverlaysMatchTheCatalog(t *testing.T) {
 		if !slices.Contains(found, p.Name) {
 			t.Errorf("platform %q is declared but no resource has a values-%s.yaml.tmpl", p.Name, p.Name)
 		}
+	}
+	for _, e := range Environments() {
+		if !slices.Contains(found, e.Name) {
+			t.Errorf("environment %q is declared but no resource has a values-%s.yaml.tmpl", e.Name, e.Name)
+		}
+	}
+}
+
+// Platforms and environments share one file-name space inside a chart, so a
+// name used twice would have one overlay silently overwrite the other.
+func TestPlatformAndEnvironmentNamesDoNotCollide(t *testing.T) {
+	seen := map[string]string{}
+	for _, p := range Platforms() {
+		seen[p.ValuesFile()] = "platform " + p.Name
+	}
+	for _, e := range Environments() {
+		if prev, ok := seen[e.ValuesFile()]; ok {
+			t.Errorf("environment %s and %s both write %s", e.Name, prev, e.ValuesFile())
+		}
+	}
+}
+
+func TestEnvironmentMetadata(t *testing.T) {
+	for _, e := range Environments() {
+		if e.Summary == "" {
+			t.Errorf("%s has an empty Summary", e.Name)
+		}
+		if want := "values-" + e.Name + ".yaml"; e.ValuesFile() != want {
+			t.Errorf("ValuesFile = %q, want %q", e.ValuesFile(), want)
+		}
+		if _, ok := LookupEnvironment(e.Name); !ok {
+			t.Errorf("%s is listed but not found", e.Name)
+		}
+	}
+	if _, ok := LookupEnvironment("nope"); ok {
+		t.Error("unknown environment reported as found")
+	}
+	if len(EnvironmentNames()) != len(Environments()) {
+		t.Error("EnvironmentNames and Environments disagree")
 	}
 }
 
@@ -277,16 +319,16 @@ func TestPlatformMetadata(t *testing.T) {
 // purpose is to show the difference.
 func TestPlatformOverlaysDifferFromTheBase(t *testing.T) {
 	for _, r := range Resources() {
-		for _, p := range Platforms() {
-			if !render.HasPlatformValues(r.Name, p.Name) {
+		for _, p := range overlaySuffixes() {
+			if !render.HasOverlayValues(r.Name, p) {
 				continue
 			}
-			t.Run(r.Name+"/"+p.Name, func(t *testing.T) {
+			t.Run(r.Name+"/"+p, func(t *testing.T) {
 				base, err := render.ResourceValues(r.Name, testData())
 				if err != nil {
 					t.Fatal(err)
 				}
-				over, ok, err := render.ResourcePlatformValues(r.Name, p.Name, testData())
+				over, ok, err := render.ResourceOverlayValues(r.Name, p, testData())
 				if err != nil || !ok {
 					t.Fatalf("overlay did not render: %v", err)
 				}
@@ -314,12 +356,12 @@ func TestPlatformOverlaysDifferFromTheBase(t *testing.T) {
 // lands in values.yaml describing nothing and helm ignores it.
 func TestPlatformOverlayKeysBelongToTheResource(t *testing.T) {
 	for _, r := range Resources() {
-		for _, p := range Platforms() {
-			if !render.HasPlatformValues(r.Name, p.Name) {
+		for _, p := range overlaySuffixes() {
+			if !render.HasOverlayValues(r.Name, p) {
 				continue
 			}
-			t.Run(r.Name+"/"+p.Name, func(t *testing.T) {
-				over, _, err := render.ResourcePlatformValues(r.Name, p.Name, testData())
+			t.Run(r.Name+"/"+p, func(t *testing.T) {
+				over, _, err := render.ResourceOverlayValues(r.Name, p, testData())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -343,4 +385,10 @@ func TestLookupPlatformKnown(t *testing.T) {
 			t.Errorf("%s is listed but not found", name)
 		}
 	}
+}
+
+// overlaySuffixes is every axis an overlay can be named for.
+func overlaySuffixes() []string {
+	out := append([]string{}, PlatformNames()...)
+	return append(out, EnvironmentNames()...)
 }

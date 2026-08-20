@@ -1,0 +1,26 @@
+# -- One ReplicaSet of history is enough when every push replaces the image.
+revisionHistoryLimit: 1
+
+# -- Short: nobody is draining connections from a development pod, and waiting
+# 30s for every restart is 30s of someone's afternoon.
+terminationGracePeriodSeconds: 5
+
+# -- Small enough to fit several copies on one node. No CPU limit here either:
+# throttling a service you are actively debugging produces timeouts that look
+# like bugs in the code.
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+# -- Slow to give up. A pod stopped in a debugger is not an unhealthy pod, and
+# the default liveness probe will kill it.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  failureThreshold: 10

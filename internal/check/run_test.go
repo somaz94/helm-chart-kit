@@ -165,3 +165,82 @@ func TestRunWithoutHelmOnPath(t *testing.T) {
 		t.Fatalf("got %v, want ErrNoHelm", err)
 	}
 }
+
+// An overlay has to change the render, not merely be accepted. The first
+// version of this feature passed OverlayFiles into Options and never appended
+// them to the helm command line: every check still passed, because a check
+// that renders the base chart renders it fine.
+func TestRunAppliesOverlayFiles(t *testing.T) {
+	requireHelm(t)
+	c := writeRenderableChart(t, cleanDeployment)
+	overlay := filepath.Join(t.TempDir(), "overlay.yaml")
+	mustWrite(t, overlay, "tag: \"9.9.9\"\n")
+
+	base, err := Run(c, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(base.Rendered, "9.9.9") {
+		t.Fatal("the base already renders the overlay's value, so this proves nothing")
+	}
+
+	with, err := Run(c, Options{OverlayFiles: []string{overlay}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(with.Rendered, "9.9.9") {
+		t.Error("OverlayFiles reached Options but never reached helm")
+	}
+}
+
+// Overlays are appended, not substituted: they must not suppress the
+// ci/install-values.yaml fallback the way an explicit -f does.
+func TestRunOverlayKeepsTheCIFallback(t *testing.T) {
+	requireHelm(t)
+	c := writeRenderableChart(t, `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo
+data:
+  tag: {{ required "tag is required" .Values.tag | quote }}
+  extra: {{ .Values.extra | default "unset" | quote }}
+`)
+	// The chart's own values.yaml supplies tag; ci/ would too. The overlay
+	// supplies only "extra", so if it replaced the base the render fails.
+	overlay := filepath.Join(t.TempDir(), "overlay.yaml")
+	mustWrite(t, overlay, "extra: \"set\"\n")
+
+	rep, err := Run(c, Options{OverlayFiles: []string{overlay}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Errors() != 0 {
+		t.Fatalf("overlay replaced the base values: %+v", rep.Findings)
+	}
+	if !strings.Contains(rep.Rendered, `extra: "set"`) {
+		t.Error("overlay did not reach the render")
+	}
+}
+
+// The last -f wins, which is why the environment overlay is passed after the
+// platform one.
+func TestRunOverlayOrderIsPreserved(t *testing.T) {
+	requireHelm(t)
+	c := writeRenderableChart(t, cleanDeployment)
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.yaml")
+	second := filepath.Join(dir, "second.yaml")
+	mustWrite(t, first, "tag: \"1.1.1\"\n")
+	mustWrite(t, second, "tag: \"2.2.2\"\n")
+
+	rep, err := Run(c, Options{OverlayFiles: []string{first, second}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rep.Rendered, "2.2.2") {
+		t.Error("the later overlay did not win")
+	}
+	if strings.Contains(rep.Rendered, "1.1.1") {
+		t.Error("the earlier overlay was not overridden")
+	}
+}

@@ -1,0 +1,5 @@
+podDisruptionBudget:
+  enabled: true
+  # -- One at a time. maxUnavailable rather than minAvailable so the budget
+  # keeps working when the autoscaler changes the replica count under it.
+  maxUnavailable: 1

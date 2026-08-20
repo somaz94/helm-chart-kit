@@ -99,11 +99,12 @@ func ResourceSchema(resource string, d Data) ([]byte, error) {
 	return renderPath(path.Join("templates/resources", resource, "schema.json.tmpl"), d)
 }
 
-// ResourcePlatformValues renders one resource's values overlay for a platform.
-// Most resources have none — a ConfigMap looks the same everywhere — and the
+// ResourceOverlayValues renders one resource's values overlay for a suffix —
+// a platform like "aws" or an environment like "prod". Most resources have
+// none for a given suffix — a ConfigMap looks the same everywhere — and the
 // absence is reported rather than treated as an error.
-func ResourcePlatformValues(resource, platform string, d Data) ([]byte, bool, error) {
-	p := path.Join("templates/resources", resource, "values-"+platform+".yaml.tmpl")
+func ResourceOverlayValues(resource, suffix string, d Data) ([]byte, bool, error) {
+	p := path.Join("templates/resources", resource, "values-"+suffix+".yaml.tmpl")
 	if _, err := fs.Stat(files, p); err != nil {
 		return nil, false, nil
 	}
@@ -111,16 +112,16 @@ func ResourcePlatformValues(resource, platform string, d Data) ([]byte, bool, er
 	return out, err == nil, err
 }
 
-// HasPlatformValues reports whether a resource differs on a platform. It backs
-// the test that keeps the overlay tree and the platform list in step.
-func HasPlatformValues(resource, platform string) bool {
-	_, err := fs.Stat(files, path.Join("templates/resources", resource, "values-"+platform+".yaml.tmpl"))
+// HasOverlayValues reports whether a resource differs under a suffix. It backs
+// the test that keeps the overlay tree and the catalog in step.
+func HasOverlayValues(resource, suffix string) bool {
+	_, err := fs.Stat(files, path.Join("templates/resources", resource, "values-"+suffix+".yaml.tmpl"))
 	return err == nil
 }
 
-// PlatformsWithValues lists the platform suffixes present in the embedded
-// tree, so a fragment named for a platform nobody declared is caught.
-func PlatformsWithValues() ([]string, error) {
+// OverlaySuffixes lists the suffixes present in the embedded tree, so a
+// fragment named for a platform or environment nobody declared is caught.
+func OverlaySuffixes() ([]string, error) {
 	seen := map[string]bool{}
 	err := fs.WalkDir(files, "templates/resources", func(p string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() {

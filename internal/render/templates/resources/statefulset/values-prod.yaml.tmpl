@@ -1,0 +1,13 @@
+terminationGracePeriodSeconds: 120
+
+resources:
+  requests:
+    cpu: 1
+    memory: 2Gi
+  limits:
+    memory: 4Gi
+
+persistence:
+  # -- Size it once. A StatefulSet's volumeClaimTemplates are immutable, so
+  # growing this later means recreating the object with --cascade=orphan.
+  size: 100Gi

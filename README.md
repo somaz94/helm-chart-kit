@@ -50,6 +50,7 @@ updated payments-api
 | **Gateway API, ServiceMonitor, ExternalSecret** | — | Yes |
 | **Presets** | One shape | `web`, `worker`, `cronjob`, `stateful`, `daemon` |
 | **Platform values** | None | `aws`, `gcp`, `azure`, `onprem` overlays |
+| **Environment values** | None | `dev`, `staging`, `prod` overlays |
 | **Custom starters** | `--starter`, whole-chart only | Per-resource, composable |
 | **Validation** | `helm lint` | `helm template` + `helm lint` + house rules |
 | **Image tag** | Falls back to `appVersion` | Required — the render fails without one |
@@ -102,6 +103,11 @@ hck check -f values/prod.yaml --strict
 hck new payments-api --platform aws   # scaffold with values-aws.yaml
 hck platform add gcp azure            # add to an existing chart
 hck check --platform aws              # check it AS INSTALLED there
+
+# Environment overlays: how hard it is being asked to work
+hck new payments-api --env dev,prod   # scaffold with values-dev.yaml, values-prod.yaml
+hck env add staging                   # add to an existing chart
+hck check --platform aws --env prod   # both axes at once
 
 # Document the values as a Markdown table
 hck docs                              # print it
@@ -246,6 +252,34 @@ configuration right up until someone installs with it.
 | `gcp` | Workload Identity, GCE ingress, NEG services, pd-balanced volumes, Secret Manager |
 | `azure` | Workload Identity (including the pod label everyone forgets), App Gateway, managed-csi, Key Vault |
 | `onprem` | ingress-nginx, MetalLB, a storage class you provide, Vault, private registry pull secrets |
+
+<br/>
+
+## Environment overlays
+
+Platform says *where*; environment says *how hard*. The two are orthogonal and
+they stack:
+
+```bash
+helm install app . -f values-aws.yaml -f values-prod.yaml
+#                     ↑ EKS              ↑ three replicas, a budget, strict probes
+```
+
+Environment goes **last**, because `helm` applies `-f` left to right: the size
+prod asks for wins over whatever the platform overlay happened to set.
+
+| Environment | Shape |
+|---|---|
+| `dev` | One replica, small requests, no budget, patient liveness probe — a pod stopped in a debugger is not an unhealthy pod |
+| `staging` | Two replicas, production's ratios at a fraction of its size, HPA and NetworkPolicy on so both are exercised before production depends on them |
+| `prod` | Three replicas, `maxUnavailable: 0` rollouts, 60s termination grace, HPA 3–20 scaling up fast and down slowly, PDB, `helm test` off |
+
+```bash
+hck new payments-api --env dev,prod
+hck env add staging
+hck env list
+hck check --env prod --strict
+```
 
 <br/>
 

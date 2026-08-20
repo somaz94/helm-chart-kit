@@ -205,33 +205,33 @@ func TestRenderFailsOnAnUnknownField(t *testing.T) {
 
 func TestPlatformValues(t *testing.T) {
 	// serviceaccount differs on every cloud; configmap differs nowhere.
-	if !HasPlatformValues("serviceaccount", "aws") {
+	if !HasOverlayValues("serviceaccount", "aws") {
 		t.Error("serviceaccount has no aws overlay")
 	}
-	if HasPlatformValues("configmap", "aws") {
+	if HasOverlayValues("configmap", "aws") {
 		t.Error("configmap should look the same everywhere")
 	}
-	if HasPlatformValues("serviceaccount", "no-such-cloud") {
+	if HasOverlayValues("serviceaccount", "no-such-cloud") {
 		t.Error("unknown platform reported as present")
 	}
 
-	out, ok, err := ResourcePlatformValues("serviceaccount", "aws", testData())
+	out, ok, err := ResourceOverlayValues("serviceaccount", "aws", testData())
 	if err != nil || !ok {
 		t.Fatalf("overlay did not render: ok=%v err=%v", ok, err)
 	}
 	assertFullyRendered(t, "serviceaccount/values-aws.yaml", out)
 
 	// A resource with no overlay is not an error, it is simply absent.
-	if _, ok, err := ResourcePlatformValues("configmap", "aws", testData()); err != nil || ok {
+	if _, ok, err := ResourceOverlayValues("configmap", "aws", testData()); err != nil || ok {
 		t.Errorf("ok=%v err=%v, want false and no error", ok, err)
 	}
-	if _, ok, err := ResourcePlatformValues("serviceaccount", "nope", testData()); err != nil || ok {
+	if _, ok, err := ResourceOverlayValues("serviceaccount", "nope", testData()); err != nil || ok {
 		t.Errorf("ok=%v err=%v, want false and no error", ok, err)
 	}
 }
 
-func TestPlatformsWithValues(t *testing.T) {
-	got, err := PlatformsWithValues()
+func TestOverlaySuffixes(t *testing.T) {
+	got, err := OverlaySuffixes()
 	if err != nil {
 		t.Fatal(err)
 	}

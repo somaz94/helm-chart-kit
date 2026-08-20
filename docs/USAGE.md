@@ -21,6 +21,7 @@ hck new <chart-name> [flags]
 | `--schema` | `false` | Also write `values.schema.json` |
 | `--schema-strict` | `false` | Write `values.schema.json` and reject undeclared top-level keys |
 | `--platform` | — | Platform values overlays to write, comma-separated: `aws`, `gcp`, `azure`, `onprem` |
+| `--env` | — | Environment values overlays to write, comma-separated: `dev`, `staging`, `prod` |
 | `--dry-run` | `false` | Print what would be written and exit |
 
 ```bash
@@ -86,6 +87,7 @@ hck check [flags]
 | `--chart` | `.` | Chart directory |
 | `-f, --values` | — | Values files passed to helm; repeatable |
 | `--platform` | — | Also apply these platform overlays, comma-separated |
+| `--env` | — | Also apply these environment overlays, comma-separated. Applied after `--platform`, so it wins |
 | `--strict` | `false` | Fail on warnings as well as errors |
 | `--print` | `false` | Print the rendered manifests |
 | `--no-render` | `false` | Skip helm; run only the rules that read the chart directory |
@@ -179,6 +181,32 @@ hck check --platform aws,gcp --strict
 ```
 
 This renders the chart **with the overlay applied**, which is the only way to find out that it renders at all. The overlay is additive: it layers on top of `ci/install-values.yaml` rather than replacing it, so the chart still gets the image tag it requires.
+
+<br/>
+
+## hck env
+
+Environment overlays carry how hard the chart is being asked to work. Orthogonal to platform, and stacked after it.
+
+```bash
+hck env list
+hck env add prod
+hck env add dev staging
+hck env add prod --dry-run
+hck env add prod --force
+```
+
+| Environment | Shape |
+|---|---|
+| `dev` | One replica, small requests, no budget, patient liveness probe, CronJobs suspended |
+| `staging` | Two replicas, production's ratios at a fraction of its size, HPA and NetworkPolicy on |
+| `prod` | Three replicas, `maxUnavailable: 0`, 60s grace, HPA 3–20, PDB, `helm test` off |
+
+```bash
+helm install app . -f values-aws.yaml -f values-prod.yaml
+```
+
+The environment goes last because `helm` applies `-f` left to right: the replica count prod asks for wins over whatever a platform overlay set. `hck check --platform aws --env prod` passes them to helm in that same order.
 
 <br/>
 

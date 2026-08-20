@@ -227,7 +227,49 @@ jobs:
             echo "FAIL: --platform gcp passed without values-gcp.yaml"
             exit 1
           fi
+
+          # An overlay that is merely accepted proves nothing: a check that
+          # renders the base chart renders it fine. Assert the render changed.
+          chart="$workdir/later"
+          if hck check --chart "$chart" --print | grep -q 'eks.amazonaws.com/role-arn'; then
+            echo "FAIL: the base already carries the IRSA annotation"
+            exit 1
+          fi
+          hck check --chart "$chart" --platform aws --print | grep -q 'eks.amazonaws.com/role-arn' || {
+            echo "FAIL: --platform aws did not reach the render"
+            exit 1
+          }
           echo "PASS: platform overlays"
+
+      # Environment overlays stack on top of a platform, and go last so their
+      # size wins over whatever the platform set.
+      - name: Render every preset at every environment
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          for preset in web worker cronjob stateful daemon; do
+            for env in dev staging prod; do
+              name="$preset-$env"
+              hck new "$name" --dir "$workdir" --preset "$preset" --env "$env" --schema >/dev/null
+              hck check --chart "$workdir/$name" --env "$env" --strict >/dev/null
+            done
+            echo "  $preset: 3 environments ok"
+          done
+
+          # Both axes at once, and the environment has to win.
+          hck new both --dir "$workdir" --preset web --platform aws --env prod --schema >/dev/null
+          chart="$workdir/both"
+          hck check --chart "$chart" --platform aws --env prod --strict >/dev/null
+          hck check --chart "$chart" --platform aws --env prod --print | grep -q 'eks.amazonaws.com/role-arn' || {
+            echo "FAIL: the platform overlay was lost when an environment was added"
+            exit 1
+          }
+          hck check --chart "$chart" --platform aws --env prod --print | grep -q 'kind: PodDisruptionBudget' || {
+            echo "FAIL: the prod overlay did not reach the render"
+            exit 1
+          }
+          echo "PASS: environment overlays"
 
       # A chart that never asked for a schema must not acquire one.
       - name: Keep the schema opt-in

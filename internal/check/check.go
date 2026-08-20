@@ -99,6 +99,11 @@ func Run(c *chart.Chart, opts Options) (*Report, error) {
 			vals = []string{ci}
 		}
 	}
+	// Overlays layer on top of whatever the base turned out to be, and are
+	// appended rather than replacing it: an overlay says what differs on a
+	// platform or at a size, and says nothing about the image tag the chart
+	// still requires. helm applies -f left to right, so the last one wins.
+	vals = append(vals, opts.OverlayFiles...)
 
 	rendered, err := runHelm(helm, append([]string{"template", filepath.Base(c.Dir), c.Dir}, valuesArgs(vals)...))
 	if err != nil {

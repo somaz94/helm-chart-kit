@@ -1,0 +1,6 @@
+autoscaling:
+  # -- On, so the scaling behaviour itself is exercised before production
+  # depends on it. Narrow bounds keep the bill small.
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4

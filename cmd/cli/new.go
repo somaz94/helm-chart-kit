@@ -21,6 +21,7 @@ func newNewCmd() *cobra.Command {
 		schema       bool
 		schemaStrict bool
 		platforms    []string
+		envs         []string
 	}
 
 	cmd := &cobra.Command{
@@ -37,7 +38,8 @@ top. Every resource contributes its own documented section to values.yaml.`,
   hck new gateway --preset web --with httproute --dry-run
   hck new payments-api --schema
   hck new payments-api --platform aws
-  hck new payments-api --platform aws,gcp --schema`,
+  hck new payments-api --platform aws,gcp --schema
+  hck new payments-api --platform aws --env dev,prod`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			desc := opts.description
@@ -56,6 +58,7 @@ top. Every resource contributes its own documented section to values.yaml.`,
 				Schema:       opts.schema || opts.schemaStrict,
 				SchemaStrict: opts.schemaStrict,
 				Platforms:    splitList(opts.platforms),
+				Environments: splitList(opts.envs),
 			})
 			if err != nil {
 				return err
@@ -90,10 +93,15 @@ top. Every resource contributes its own documented section to values.yaml.`,
 	cmd.Flags().BoolVar(&opts.schema, "schema", false, "also write values.schema.json")
 	cmd.Flags().BoolVar(&opts.schemaStrict, "schema-strict", false, "write values.schema.json and reject undeclared top-level keys")
 	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "platform values overlays to write: "+strings.Join(catalog.PlatformNames(), ", "))
+	cmd.Flags().StringSliceVar(&opts.envs, "env", nil, "environment values overlays to write: "+strings.Join(catalog.EnvironmentNames(), ", "))
 
 	_ = cmd.RegisterFlagCompletionFunc("preset",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 			return catalog.PresetNames(), cobra.ShellCompDirectiveNoFileComp
+		})
+	_ = cmd.RegisterFlagCompletionFunc("env",
+		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+			return catalog.EnvironmentNames(), cobra.ShellCompDirectiveNoFileComp
 		})
 	_ = cmd.RegisterFlagCompletionFunc("platform",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

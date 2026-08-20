@@ -1,0 +1,14 @@
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  # -- Below the usual 80: leaving headroom is what lets the autoscaler add a
+  # pod before latency is already visible.
+  targetCPUUtilizationPercentage: 60
+  # -- Scale up fast, down slowly. The cost of an extra pod for five minutes
+  # is far below the cost of being one pod short during a spike.
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+    scaleDown:
+      stabilizationWindowSeconds: 300

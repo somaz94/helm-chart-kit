@@ -18,6 +18,7 @@ func newCheckCmd() *cobra.Command {
 		chartDir    string
 		valuesFiles []string
 		platforms   []string
+		envs        []string
 		strict      bool
 		printOutput bool
 		noRender    bool
@@ -38,6 +39,7 @@ defaults — which is the point of requiring one.`,
   hck check -f values/prod.yaml --strict
   hck check --platform aws
   hck check --platform aws,gcp --strict
+  hck check --platform aws --env prod --strict
   hck check --print`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := chart.Find(opts.chartDir)
@@ -63,6 +65,19 @@ defaults — which is the point of requiring one.`,
 				}
 				overlays = append(overlays, path)
 			}
+			// Environment last: overlays apply left to right, so the size it
+			// asks for wins over whatever a platform overlay set.
+			for _, name := range splitList(opts.envs) {
+				e, ok := catalog.LookupEnvironment(name)
+				if !ok {
+					return fmt.Errorf("unknown environment %q (known: %s)", name, strings.Join(catalog.EnvironmentNames(), ", "))
+				}
+				path := filepath.Join(c.Dir, e.ValuesFile())
+				if _, err := os.Stat(path); err != nil {
+					return fmt.Errorf("%s has no %s — run: hck env add %s", c.Meta.Name, e.ValuesFile(), e.Name)
+				}
+				overlays = append(overlays, path)
+			}
 
 			rep, err := check.Run(c, check.Options{
 				ValuesFiles:  opts.valuesFiles,
@@ -84,7 +99,7 @@ defaults — which is the point of requiring one.`,
 			}
 
 			label := c.Meta.Name
-			if names := splitList(opts.platforms); len(names) > 0 {
+			if names := append(splitList(opts.platforms), splitList(opts.envs)...); len(names) > 0 {
 				label += " (" + strings.Join(names, " + ") + ")"
 			}
 			fprintf(out, "%s %s\n\n", p.bold("check"), label)
@@ -114,6 +129,7 @@ defaults — which is the point of requiring one.`,
 	cmd.Flags().StringVar(&opts.chartDir, "chart", ".", "chart directory; parent directories are searched for Chart.yaml")
 	cmd.Flags().StringSliceVarP(&opts.valuesFiles, "values", "f", nil, "values files passed to helm; repeatable")
 	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "also apply these platform overlays: "+strings.Join(catalog.PlatformNames(), ", "))
+	cmd.Flags().StringSliceVar(&opts.envs, "env", nil, "also apply these environment overlays: "+strings.Join(catalog.EnvironmentNames(), ", "))
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "fail on warnings as well as errors")
 	cmd.Flags().BoolVar(&opts.printOutput, "print", false, "print the rendered manifests")
 	cmd.Flags().BoolVar(&opts.noRender, "no-render", false, "skip helm; run only the rules that read the chart directory")

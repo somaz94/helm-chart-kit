@@ -1,0 +1,15 @@
+replicaCount: 1
+
+terminationGracePeriodSeconds: 15
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+persistence:
+  # -- Small: a development volume holds a fixture, not a dataset. Note that
+  # growing a StatefulSet's volume later means recreating the object.
+  size: 1Gi

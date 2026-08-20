@@ -788,3 +788,100 @@ func TestCheckRejectsAnUnknownPlatform(t *testing.T) {
 		t.Error("want an error for an unknown platform")
 	}
 }
+
+func TestEnvList(t *testing.T) {
+	out := mustRun(t, "env", "list", "--chart", t.TempDir())
+	for _, want := range []string{"ENVIRONMENTS", "dev", "staging", "prod"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("listing is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestEnvAdd(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	dir := filepath.Join(parent, "demo")
+
+	mustRun(t, "env", "add", "dev", "prod", "--chart", dir)
+	for _, name := range []string{"values-dev.yaml", "values-prod.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was not written", name)
+		}
+	}
+	out := mustRun(t, "env", "list", "--chart", dir)
+	if !strings.Contains(out, "+ dev") {
+		t.Errorf("dev is not marked as present:\n%s", out)
+	}
+	if _, err := run(t, "env", "add", "nope", "--chart", dir); err == nil {
+		t.Error("want an error for an unknown environment")
+	}
+}
+
+// The two axes stack, and the environment goes last so its size wins.
+func TestCheckStacksPlatformAndEnvironment(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--platform", "aws", "--env", "prod", "--schema")
+	dir := filepath.Join(parent, "demo")
+
+	mustRun(t, "check", "--chart", dir, "--platform", "aws", "--env", "prod", "--strict")
+	both := mustRun(t, "check", "--chart", dir, "--platform", "aws", "--env", "prod", "--print")
+
+	// The platform half survived...
+	if !strings.Contains(both, "eks.amazonaws.com/role-arn") {
+		t.Error("the platform overlay was lost when an environment was added")
+	}
+	// ...and so did the environment half.
+	if !strings.Contains(both, "kind: PodDisruptionBudget") {
+		t.Error("the prod overlay did not reach the render")
+	}
+}
+
+// An overlay that changes nothing about the render is not an overlay. This is
+// what a check passing on the base chart looks like, and it used to pass.
+func TestCheckOverlayActuallyChangesTheRender(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--platform", "aws")
+	dir := filepath.Join(parent, "demo")
+
+	base := mustRun(t, "check", "--chart", dir, "--print")
+	if strings.Contains(base, "eks.amazonaws.com/role-arn") {
+		t.Fatal("the base already carries the annotation, so this proves nothing")
+	}
+	with := mustRun(t, "check", "--chart", dir, "--platform", "aws", "--print")
+	if !strings.Contains(with, "eks.amazonaws.com/role-arn") {
+		t.Error("--platform aws did not reach the render")
+	}
+}
+
+func TestCheckEnvNeedsTheOverlay(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent)
+	_, err := run(t, "check", "--chart", filepath.Join(parent, "demo"), "--env", "prod")
+	if err == nil {
+		t.Fatal("want an error when the overlay is absent")
+	}
+	if !strings.Contains(err.Error(), "hck env add prod") {
+		t.Errorf("error does not say how to fix it: %v", err)
+	}
+}
+
+func TestNewWritesBothAxes(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--platform", "aws", "--env", "dev,prod")
+	dir := filepath.Join(parent, "demo")
+	for _, name := range []string{"values-aws.yaml", "values-dev.yaml", "values-prod.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was not written", name)
+		}
+	}
+	if _, err := run(t, "new", "other", "-d", parent, "--env", "nope"); err == nil {
+		t.Error("want an error for an unknown environment")
+	}
+}

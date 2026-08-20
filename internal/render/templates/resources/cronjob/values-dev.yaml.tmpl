@@ -1,0 +1,13 @@
+cronjob:
+  # -- Suspended. A schedule that fires in a development namespace usually
+  # surprises whoever left it there.
+  suspend: true
+  # -- Keep more failures around; the reason to run it here is to read them.
+  failedJobsHistoryLimit: 10
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 128Mi

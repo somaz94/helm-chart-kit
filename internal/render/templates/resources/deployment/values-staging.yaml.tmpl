@@ -1,0 +1,22 @@
+# -- Two, so a rollout and a node drain both have somewhere to go, without
+# paying for production's third.
+replicaCount: 2
+
+revisionHistoryLimit: 5
+
+# -- Production's shape at a fraction of its size. Keeping the ratio between
+# request and limit the same is what makes staging predict production.
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 3
