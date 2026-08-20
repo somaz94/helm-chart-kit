@@ -124,6 +124,29 @@ func TestEveryResourceHasTemplates(t *testing.T) {
 	}
 }
 
+// TestEveryWorkloadHasAPreset closes the gap that made "hck new --preset web
+// --with daemonset" look necessary in the first place.
+//
+// A chart carries one primary workload, so --with cannot add a second on top
+// of whatever the preset already brings. A workload no preset offers is
+// therefore not reachable at all — which is what happened to the DaemonSet:
+// the only way to scaffold one was the --with route, and that route was a bug.
+func TestEveryWorkloadHasAPreset(t *testing.T) {
+	offered := map[string]bool{}
+	for _, p := range Presets() {
+		for _, name := range p.Resources {
+			if r, ok := LookupResource(name); ok && r.Workload {
+				offered[name] = true
+			}
+		}
+	}
+	for _, r := range Resources() {
+		if r.Workload && !offered[r.Name] {
+			t.Errorf("%s is a primary workload but no preset includes it, so no chart can be scaffolded with it", r.Name)
+		}
+	}
+}
+
 // testData is the minimum context the fragments need to render.
 func testData() render.Data {
 	return render.Data{

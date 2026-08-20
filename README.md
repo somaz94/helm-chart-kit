@@ -48,7 +48,7 @@ updated payments-api
 | **`values.yaml` on add** | — | Appended, existing bytes untouched |
 | **Documented values** | Sparse | Every key carries the reason it exists |
 | **Gateway API, ServiceMonitor, ExternalSecret** | — | Yes |
-| **Presets** | One shape | `web`, `worker`, `cronjob`, `stateful` |
+| **Presets** | One shape | `web`, `worker`, `cronjob`, `stateful`, `daemon` |
 | **Custom starters** | `--starter`, whole-chart only | Per-resource, composable |
 | **Validation** | `helm lint` | `helm template` + `helm lint` + house rules |
 | **Image tag** | Falls back to `appVersion` | Required — the render fails without one |
@@ -86,6 +86,7 @@ hck new payments-api                       # web preset: Deployment, Service, In
 hck new billing-worker --preset worker     # no Service, no ingress path
 hck new sessions --preset stateful         # StatefulSet with per-replica volumes
 hck new nightly-sync --preset cronjob
+hck new log-shipper --preset daemon        # DaemonSet on every node, no Service
 
 # Add to a chart that already exists
 hck add servicemonitor

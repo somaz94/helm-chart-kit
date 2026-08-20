@@ -228,6 +228,14 @@ var presets = []Preset{
 		Summary:   "Stateful service: StatefulSet, headless Service, PDB, NetworkPolicy",
 		Resources: []string{"serviceaccount", "statefulset", "service", "pdb", "networkpolicy", "configmap"},
 	},
+	{
+		// No PDB: kubectl drain skips DaemonSet pods rather than evicting
+		// them, so a budget over them constrains nothing. No tests either —
+		// the test hook dials a Service, and a node agent has none.
+		Name:      "daemon",
+		Summary:   "Node agent: DaemonSet on every node, no Service",
+		Resources: []string{"serviceaccount", "daemonset", "configmap", "networkpolicy"},
+	},
 }
 
 // Resources returns every known resource, ordered by name.

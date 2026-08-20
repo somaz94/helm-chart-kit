@@ -10,6 +10,7 @@
 | `worker` | serviceaccount, deployment, pdb, networkpolicy, configmap |
 | `cronjob` | serviceaccount, cronjob, configmap |
 | `stateful` | serviceaccount, statefulset, service, pdb, networkpolicy, configmap |
+| `daemon` | serviceaccount, daemonset, configmap, networkpolicy |
 
 Every preset carries exactly one workload. That is enforced by a test, not a convention: two workloads in one chart contend for the same values keys — `image`, `resources`, `updateStrategy` — with incompatible shapes.
 

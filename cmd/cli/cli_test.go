@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/somaz94/helm-chart-kit/internal/catalog"
 )
 
 // run drives a fresh command tree and captures its output. NO_COLOR keeps the
@@ -197,7 +199,7 @@ func TestCheckRendersTheGeneratedChart(t *testing.T) {
 		t.Skip("helm is not on PATH")
 	}
 	dir := t.TempDir()
-	for _, preset := range []string{"web", "worker", "cronjob", "stateful"} {
+	for _, preset := range catalog.PresetNames() {
 		t.Run(preset, func(t *testing.T) {
 			mustRun(t, "new", preset, "--dir", dir, "--preset", preset)
 			out := mustRun(t, "check", "--chart", filepath.Join(dir, preset))
@@ -459,7 +461,7 @@ func TestHelmAcceptsTheGeneratedSchema(t *testing.T) {
 		t.Skip("helm is not on PATH")
 	}
 	dir := t.TempDir()
-	for _, preset := range []string{"web", "worker", "cronjob", "stateful"} {
+	for _, preset := range catalog.PresetNames() {
 		for _, strict := range []bool{false, true} {
 			name := preset
 			flag := "--schema"

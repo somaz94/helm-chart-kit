@@ -16,6 +16,10 @@ imagePullSecrets: []
 
 # -- Share the node network namespace. Needed by node agents that bind a host
 # port or read host-level network state.
+#
+# A NetworkPolicy does not apply to a pod on the host network. Turning this on
+# does not remove the policy object, it just stops it constraining anything —
+# which looks exactly like a policy that is working.
 hostNetwork: false
 
 env: []
