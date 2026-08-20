@@ -31,6 +31,8 @@ func printPlan(w io.Writer, p *scaffold.Plan, dryRun bool) {
 			fprintf(w, "  %s  %s\n", c.yellow("~"), f.Path)
 		case scaffold.Skip:
 			fprintf(w, "  %s  %s %s\n", c.dim("."), c.dim(f.Path), c.dim("("+f.Reason+")"))
+		case scaffold.Delete:
+			fprintf(w, "  %s  %s\n", c.red("-"), f.Path)
 		}
 	}
 
@@ -39,6 +41,11 @@ func printPlan(w io.Writer, p *scaffold.Plan, dryRun bool) {
 	}
 	if len(p.ValuesSkipped) > 0 {
 		fprintf(w, "  values.yaml kept as-is: %s\n", c.dim(strings.Join(p.ValuesSkipped, ", ")))
+	}
+	// Named rather than removed: values.yaml is never rewritten, so these keys
+	// are still in the file and deleting them stays somebody's decision.
+	if len(p.ValuesOrphaned) > 0 {
+		fprintf(w, "\n  values.yaml still declares (now unused): %s\n", strings.Join(dedupe(p.ValuesOrphaned), ", "))
 	}
 
 	if len(p.Notes) > 0 {

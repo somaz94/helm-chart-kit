@@ -118,6 +118,15 @@ hck new log-shipper --preset daemon        # 모든 노드에 DaemonSet
 hck add pdb networkpolicy
 hck add httproute --dry-run
 
+# 다시 빼기. 템플릿만 지우고 values.yaml 은 절대 다시 쓰지 않습니다
+hck remove ingress
+hck remove hpa pdb --dry-run
+
+# 지금의 hck 가 생성하는 것과 더 이상 같지 않은 템플릿 확인
+hck sync
+hck sync --check                           # CI 게이트
+hck sync --write deployment                # hck 쪽 버전으로 가져오기
+
 # 실제 values 로 검사하거나, 경고도 실패로 취급
 hck check -f values/prod.yaml --strict
 
@@ -138,6 +147,7 @@ hck schema --check && hck docs --check     # CI 게이트
 
 # 무엇이 있는지 둘러보기
 hck list
+hck list rules                             # check 규칙과 그 ID
 ```
 
 </details>

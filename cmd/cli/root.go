@@ -57,7 +57,7 @@ table or a platform overlay does not get one.`,
 
 	for group, cmds := range map[string][]*cobra.Command{
 		groupStart:  {newInitCmd(), newNewCmd()},
-		groupChart:  {newAddCmd(), newCheckCmd()},
+		groupChart:  {newAddCmd(), newRemoveCmd(), newSyncCmd(), newCheckCmd()},
 		groupValues: {newSchemaCmd(), newDocsCmd(), newPlatformCmd(), newEnvCmd()},
 		groupLook:   {newListCmd(), newVersionCmd()},
 	} {

@@ -271,6 +271,57 @@ jobs:
           }
           echo "PASS: environment overlays"
 
+      # A chart hck just generated is by definition what hck generates, so
+      # "hck sync" over one has to be clean. And the guards on remove are the
+      # kind that only matter when they fire.
+      - name: Remove and sync
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new demo --dir "$workdir" --preset web >/dev/null
+          chart="$workdir/demo"
+
+          hck sync --chart "$chart" --check >/dev/null
+
+          # An edit is drift, and the report alone never touches the file.
+          printf '\n# a local edit\n' >> "$chart/templates/hpa.yaml"
+          if hck sync --chart "$chart" --check >/dev/null 2>&1; then
+            echo "FAIL: --check passed a chart that differs"
+            exit 1
+          fi
+          grep -q 'a local edit' "$chart/templates/hpa.yaml" || {
+            echo "FAIL: the report overwrote the file"
+            exit 1
+          }
+
+          # An edited template is somebody's work; remove refuses it.
+          if hck remove hpa --chart "$chart" >/dev/null 2>&1; then
+            echo "FAIL: remove deleted an edited template"
+            exit 1
+          fi
+          hck sync --chart "$chart" --write hpa >/dev/null
+          hck sync --chart "$chart" --check >/dev/null
+
+          # A resource another one still requires is refused too.
+          if hck remove service --chart "$chart" >/dev/null 2>&1; then
+            echo "FAIL: remove deleted a Service the Ingress still points at"
+            exit 1
+          fi
+
+          # And what it does remove is the template, not the values.
+          before=$(wc -c < "$chart/values.yaml")
+          hck remove hpa --chart "$chart" >/dev/null
+          after=$(wc -c < "$chart/values.yaml")
+          [ -e "$chart/templates/hpa.yaml" ] && { echo "FAIL: the template is still there"; exit 1; }
+          [ "$before" = "$after" ] || { echo "FAIL: values.yaml was rewritten by a removal"; exit 1; }
+          grep -q '^autoscaling:' "$chart/values.yaml" || {
+            echo "FAIL: values.yaml lost a key to a removal"
+            exit 1
+          }
+          hck check --chart "$chart" --strict >/dev/null
+          echo "PASS: remove and sync"
+
       # A rule a chart turned off has to actually stop reporting, and the
       # JSON verdict has to agree with the exit status. Both are the kind of
       # thing that looks wired up while doing nothing at all.

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,6 +36,8 @@ const (
 	Update Action = "update"
 	// Skip leaves an existing file alone.
 	Skip Action = "skip"
+	// Delete removes a file the chart carries.
+	Delete Action = "delete"
 )
 
 // File is one entry in a plan.
@@ -55,6 +58,9 @@ type Plan struct {
 	// ValuesAdded and ValuesSkipped are top-level values.yaml keys.
 	ValuesAdded   []string
 	ValuesSkipped []string
+	// ValuesOrphaned are keys a removal leaves behind. values.yaml is never
+	// rewritten, so they stay in the file and the plan names them instead.
+	ValuesOrphaned []string
 	// Notes are advisories worth printing: unmet requirements, resources
 	// needing a CRD.
 	Notes []string
@@ -381,10 +387,16 @@ func SchemaIsStrictBytes(raw []byte) bool {
 // Apply writes the plan to disk.
 func Apply(p *Plan) error {
 	for _, f := range p.Files {
-		if f.Action == Skip {
+		dest := filepath.Join(p.ChartDir, filepath.FromSlash(f.Path))
+		switch f.Action {
+		case Skip:
+			continue
+		case Delete:
+			if err := os.Remove(dest); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("remove %s: %w", dest, err)
+			}
 			continue
 		}
-		dest := filepath.Join(p.ChartDir, filepath.FromSlash(f.Path))
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
 		}

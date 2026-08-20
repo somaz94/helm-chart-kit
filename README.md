@@ -119,6 +119,15 @@ hck new log-shipper --preset daemon        # DaemonSet on every node
 hck add pdb networkpolicy
 hck add httproute --dry-run
 
+# Take one back out. Templates only — values.yaml is never rewritten
+hck remove ingress
+hck remove hpa pdb --dry-run
+
+# See which templates no longer match what hck generates
+hck sync
+hck sync --check                           # CI gate
+hck sync --write deployment                # take hck's version
+
 # Check against real values, or fail on warnings too
 hck check -f values/prod.yaml --strict
 
@@ -139,6 +148,7 @@ hck schema --check && hck docs --check     # CI gates
 
 # See what is available
 hck list
+hck list rules                             # the check rules, and their IDs
 ```
 
 </details>

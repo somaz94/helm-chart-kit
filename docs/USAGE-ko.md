@@ -99,6 +99,84 @@ hck add externalsecret --chart ./charts/payments-api
 
 <br/>
 
+## hck remove
+
+차트에 더 이상 필요 없는 리소스의 템플릿 파일을 지웁니다.
+
+```bash
+hck remove <resource>... [flags]
+hck rm <resource>...
+```
+
+| 플래그 | 기본값 | 의미 |
+|---|---|---|
+| `--chart` | `.` | 차트 디렉터리. 상위 디렉터리에서 `Chart.yaml`을 찾아 올라갑니다 |
+| `--dry-run` | `false` | 무엇을 지울지만 출력하고 종료 |
+| `--force` | `false` | 편집된 템플릿, 그리고 다른 리소스가 아직 필요로 하는 리소스도 삭제 |
+
+```bash
+hck remove ingress
+hck remove hpa pdb --dry-run
+hck rm servicemonitor --chart ./charts/payments-api
+```
+
+지우는 것은 템플릿뿐입니다. `values.yaml`은 절대 다시 쓰지 않습니다 — 이 도구 전체가 그 불변식 위에 서 있습니다. 그래서 지워진 리소스가 넣었던 키는 있던 자리에 그대로 남고, 대신 계획이 그 키를 알려 줍니다.
+
+```
+updated demo
+
+  -  templates/hpa.yaml
+
+  values.yaml still declares (now unused): autoscaling
+```
+
+그 키를 지우는 일은 부수 효과가 아니라 결정이 됩니다. 다음 두 가지 삭제는 `--force` 없이는 거부됩니다.
+
+- **다른 리소스가 아직 필요로 하는 리소스.** Ingress 밑에서 Service를 빼면 렌더는 되지만 동작하지 않는 차트가 남고, helm이 돌기 전까지 아무도 그 사실을 말해 주지 않습니다. 둘을 함께 지우면 플래그가 필요 없습니다.
+- **편집된 템플릿.** hck가 생성하는 것과 다른 파일은 누군가의 작업물이고, 리소스 이름을 잘못 친 것만으로 그것이 지워져서는 안 됩니다.
+
+두 리소스가 공유하는 키는 다른 쪽이 아직 차트에 있는 한 고아가 되지 않습니다. `persistence`는 PVC의 것인 만큼 StatefulSet의 것이기도 합니다.
+
+차트에 `values.schema.json`이 있으면 계획이 한 가지를 더 말합니다. 스키마는 여전히 그 고아 키들을 기술하고 있고, 다음 `hck add`가 그 키 없이 스키마를 다시 만듭니다. 그 시점에 strict 스키마는 values 파일을 거부합니다. 그전에 키를 지우십시오.
+
+<br/>
+
+## hck sync
+
+차트의 생성된 템플릿 중 지금의 `hck`가 쓰는 것과 달라진 것을 보고합니다.
+
+```bash
+hck sync [resource...] [flags]
+```
+
+| 플래그 | 기본값 | 의미 |
+|---|---|---|
+| `--chart` | `.` | 차트 디렉터리 |
+| `--check` | `false` | 하나라도 다르면 0이 아닌 코드로 종료 |
+| `--write` | `false` | 지정한 템플릿을 hck가 생성하는 것으로 덮어쓰기 |
+| `--all` | `false` | `--write`와 함께, 달라진 템플릿 전부를 가져오기 |
+
+```bash
+hck sync                      # 무엇이 다른지
+hck sync --check              # 같은 내용, 다르면 0이 아닌 종료 코드
+hck sync --write ingress      # 이 템플릿들을 hck 쪽 버전으로
+hck sync --write --all        # 전부 hck 쪽 버전으로
+```
+
+```
+sync demo
+
+  = templates/deployment.yaml  current
+  ~ templates/hpa.yaml         differs from what hck generates
+  = templates/service.yaml     current
+```
+
+말해 줄 수 없는 것은 "왜"입니다. 직접 편집한 템플릿과 나중 버전의 hck가 개선한 템플릿은 여기서 보면 같은 바이트입니다. 둘 다 그저 지금의 hck가 생성하는 것이 아닐 뿐입니다. 기본 동작이 보고인 이유, `--write`가 이름을 받는 이유, 그리고 이름도 `--all`도 없는 `--write`가 거부되는 이유가 이것입니다. "이 파일이 바뀌어야 하는가"의 답은 그 파일을 편집한 사람의 것입니다.
+
+`--write`는 덮어씁니다. 먼저 차이를 읽으십시오. 버전 관리 아래의 차트라면 쉬운 일이고, 아니라면 되돌릴 수 없는 일입니다.
+
+<br/>
+
 ## hck check
 
 설치돼 있는 `helm`으로 차트를 렌더한 뒤, 나온 매니페스트에 자체 규칙을 적용합니다.

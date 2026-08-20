@@ -99,6 +99,84 @@ Like `git`, it walks up: run it from anywhere inside a chart.
 
 <br/>
 
+## hck remove
+
+Delete the template files for resources a chart no longer needs.
+
+```bash
+hck remove <resource>... [flags]
+hck rm <resource>...
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--chart` | `.` | Chart directory; parent directories are searched for `Chart.yaml` |
+| `--dry-run` | `false` | Print what would be deleted and exit |
+| `--force` | `false` | Delete an edited template, and one another resource still requires |
+
+```bash
+hck remove ingress
+hck remove hpa pdb --dry-run
+hck rm servicemonitor --chart ./charts/payments-api
+```
+
+Templates only. `values.yaml` is never rewritten — that is the invariant the whole tool is built on — so the keys the removed resources introduced stay exactly where they are, and the plan names them:
+
+```
+updated demo
+
+  -  templates/hpa.yaml
+
+  values.yaml still declares (now unused): autoscaling
+```
+
+Deleting them is then a decision rather than a side effect. Two removals are refused unless you pass `--force`:
+
+- **One another resource still requires.** Removing the Service out from under an Ingress leaves a chart that renders and does not work, and nothing says so until helm runs. Removing them together needs no flag.
+- **One whose template has been edited.** A file that differs from what hck generates is somebody's work, and a mistyped resource name should not be able to delete it.
+
+A key two resources share is not orphaned while the other is still in the chart: `persistence` belongs to a StatefulSet as much as to a PVC.
+
+When the chart carries a `values.schema.json`, the plan says one more thing. The schema still describes the orphaned keys, and the next `hck add` regenerates it without them — at which point a strict schema rejects the values file. Delete the keys before then.
+
+<br/>
+
+## hck sync
+
+Report which of a chart's generated templates differ from what this `hck` would write for them today.
+
+```bash
+hck sync [resource...] [flags]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--chart` | `.` | Chart directory |
+| `--check` | `false` | Exit non-zero when anything differs |
+| `--write` | `false` | Overwrite the named templates with what hck generates |
+| `--all` | `false` | With `--write`, take every drifted template |
+
+```bash
+hck sync                      # what differs
+hck sync --check              # the same, and non-zero if anything does
+hck sync --write ingress      # take hck's version of these
+hck sync --write --all        # take hck's version of everything
+```
+
+```
+sync demo
+
+  = templates/deployment.yaml  current
+  ~ templates/hpa.yaml         differs from what hck generates
+  = templates/service.yaml     current
+```
+
+What it cannot tell you is why. A template you edited and a template hck improved in a later version are the same bytes from here — both are simply not what hck generates now. That is why the default is a report, why `--write` takes names, and why `--write` with no names and no `--all` is refused: the answer to "should this file change?" belongs to whoever edited it.
+
+`--write` overwrites. Read the difference first; a chart under version control makes that easy and one without it makes this unrecoverable.
+
+<br/>
+
 ## hck check
 
 Render the chart with your own `helm`, then apply the house rules to the manifests that come out.

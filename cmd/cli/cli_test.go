@@ -1437,3 +1437,153 @@ func TestCheckJSONFormat(t *testing.T) {
 		t.Error("an unknown --format was accepted")
 	}
 }
+
+// remove deletes templates and nothing else: the values keys stay, and the
+// plan names them so that deleting them is a decision.
+func TestRemove(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir, "--preset", "web")
+	chartDir := filepath.Join(dir, "demo")
+
+	out := mustRun(t, "remove", "hpa", "--chart", chartDir, "--dry-run")
+	if !strings.Contains(out, "templates/hpa.yaml") || !strings.Contains(out, "autoscaling") {
+		t.Fatalf("the dry run did not say what it would do:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(chartDir, "templates", "hpa.yaml")); err != nil {
+		t.Fatal("--dry-run deleted the file anyway")
+	}
+
+	out = mustRun(t, "rm", "hpa", "--chart", chartDir)
+	if !strings.Contains(out, "still declares") {
+		t.Errorf("the removal did not name the orphaned keys:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(chartDir, "templates", "hpa.yaml")); err == nil {
+		t.Error("the template is still there")
+	}
+	values, err := os.ReadFile(filepath.Join(chartDir, "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(values), "autoscaling:") {
+		t.Error("values.yaml was rewritten by a removal")
+	}
+
+	// Removing it twice is an error, not a silent success.
+	if _, err := run(t, "remove", "hpa", "--chart", chartDir); err == nil {
+		t.Error("removing a resource the chart does not have was accepted")
+	}
+}
+
+func TestRemoveRefusesWhatWouldBreakOrLoseSomething(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir, "--preset", "web")
+	chartDir := filepath.Join(dir, "demo")
+
+	// The Ingress and the test hook both point at the Service.
+	_, err := run(t, "remove", "service", "--chart", chartDir)
+	if err == nil || !strings.Contains(err.Error(), "required by") {
+		t.Errorf("got %v, want a complaint about what still needs it", err)
+	}
+	mustRun(t, "remove", "service", "ingress", "tests", "--chart", chartDir)
+
+	// An edited template is somebody's work, and --force is the only way past.
+	appendToFile(t, filepath.Join(chartDir, "templates", "pdb.yaml"), "\n# a local edit\n")
+	_, err = run(t, "remove", "pdb", "--chart", chartDir)
+	if err == nil || !strings.Contains(err.Error(), "edited") {
+		t.Errorf("got %v, want a complaint about the edit", err)
+	}
+	mustRun(t, "remove", "pdb", "--chart", chartDir, "--force")
+	if _, err := os.Stat(filepath.Join(chartDir, "templates", "pdb.yaml")); err == nil {
+		t.Error("--force did not delete it")
+	}
+}
+
+// sync reports what differs, and --write is the only thing that changes a file.
+func TestSync(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir, "--preset", "web")
+	chartDir := filepath.Join(dir, "demo")
+
+	out := mustRun(t, "sync", "--chart", chartDir)
+	if !strings.Contains(out, "every template is what hck generates") {
+		t.Fatalf("a chart hck just wrote already differs from hck:\n%s", out)
+	}
+	mustRun(t, "sync", "--chart", chartDir, "--check")
+
+	appendToFile(t, filepath.Join(chartDir, "templates", "hpa.yaml"), "\n# a local edit\n")
+	out = mustRun(t, "sync", "--chart", chartDir)
+	if !strings.Contains(out, "templates/hpa.yaml") || !strings.Contains(out, "differs") {
+		t.Fatalf("the edit was not reported:\n%s", out)
+	}
+	if _, err := run(t, "sync", "--chart", chartDir, "--check"); err == nil {
+		t.Error("--check passed a chart that differs")
+	}
+
+	// The report on its own never touches a file.
+	body, err := os.ReadFile(filepath.Join(chartDir, "templates", "hpa.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "a local edit") {
+		t.Fatal("the report overwrote the file")
+	}
+
+	mustRun(t, "sync", "--chart", chartDir, "--write", "hpa")
+	body, err = os.ReadFile(filepath.Join(chartDir, "templates", "hpa.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "a local edit") {
+		t.Error("--write did not take hck's version")
+	}
+	mustRun(t, "sync", "--chart", chartDir, "--check")
+}
+
+func TestSyncWriteAll(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir, "--preset", "worker")
+	chartDir := filepath.Join(dir, "demo")
+	for _, f := range []string{"deployment.yaml", "configmap.yaml"} {
+		appendToFile(t, filepath.Join(chartDir, "templates", f), "\n# a local edit\n")
+	}
+
+	mustRun(t, "sync", "--chart", chartDir, "--write", "--all")
+	mustRun(t, "sync", "--chart", chartDir, "--check")
+
+	// Nothing left to take says so rather than claiming to have written.
+	out := mustRun(t, "sync", "--chart", chartDir, "--write", "--all")
+	if !strings.Contains(out, "nothing to take") {
+		t.Errorf("got:\n%s", out)
+	}
+}
+
+// --write overwrites, so the ways of asking for it that mean two things at
+// once are refused rather than guessed at.
+func TestSyncRefusesAmbiguousFlags(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, "new", "demo", "--dir", dir, "--preset", "worker")
+	chartDir := filepath.Join(dir, "demo")
+
+	for _, args := range [][]string{
+		{"sync", "--chart", chartDir, "--check", "--write", "deployment"},
+		{"sync", "--chart", chartDir, "--write"},
+		{"sync", "--chart", chartDir, "--write", "--all", "deployment"},
+		{"sync", "--chart", chartDir, "nonsense"},
+	} {
+		if _, err := run(t, args...); err == nil {
+			t.Errorf("hck %s was accepted", strings.Join(args[1:], " "))
+		}
+	}
+}
+
+func appendToFile(t *testing.T, path, text string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteString(text); err != nil {
+		t.Fatal(err)
+	}
+}

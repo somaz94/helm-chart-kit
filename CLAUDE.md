@@ -43,6 +43,10 @@ These are load-bearing. Breaking one is a defect, not a style choice.
 
 **`values.yaml` is never rewritten.** `internal/values` appends text and nothing else. Do not replace it with a `yaml.Node` round-trip: that preserves keys and comments but eats blank lines and section banners, so every `hck add` would silently reformat the user's file.
 
+**Removal deletes templates and nothing else.** `scaffold.PlanRemove` emits `Delete` entries and a `ValuesOrphaned` list; it never touches `values.yaml` or `values.schema.json`. Two removals are refused without `--force`, and both guard something invisible: one another present resource `Requires` (the chart renders and does not work, and nothing says so until helm runs), and one whose file is `scaffold.Edited` (a template that differs from what hck generates is somebody's work, and a mistyped name should not delete it). A key another present resource also declares is not orphaned — `persistence` belongs to the StatefulSet as much as to the PVC.
+
+**`hck sync` cannot tell a local edit from an hck template that moved on.** Both are simply not the bytes `render.ResourceTemplate` produces now, and `scaffold.Drift` reports exactly that much. This is why the default is a report, why `--write` takes resource names, and why `--write` with neither names nor `--all` is an error rather than a guess. `Unreadable` is a third state on purpose: reporting an unreadable file as edited would invite `--write` to overwrite it.
+
 **Templates use `[[ ]]`, Helm uses `{{ }}`.** The generation layer's delimiters are set in `internal/render`. A template rendering with a `[[` still in it is caught by `TestEveryCatalogResourceRenders`.
 
 **`//go:embed all:templates`, not `//go:embed templates`.** Without `all:`, embed silently drops every path segment starting with `_` or `.` — which is exactly `templates/chart/templates/_helpers.tpl`.
