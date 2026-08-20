@@ -1,0 +1,39 @@
+# =============================================================================
+# Certificate
+#
+# Requires cert-manager and an Issuer or ClusterIssuer that can answer the
+# challenge. cert-manager writes the result into secretName, which is what
+# ingress.tls or httpRoute then references — the chart does not create that
+# Secret itself.
+# =============================================================================
+certificate:
+  # -- Create the Certificate
+  enabled: false
+  # -- Name of the Secret cert-manager writes the key pair into. Empty derives
+  # it from the chart fullname.
+  secretName: ""
+  issuerRef:
+    # -- Issuer or ClusterIssuer name
+    name: letsencrypt-prod
+    # -- Issuer (namespaced) or ClusterIssuer
+    kind: ClusterIssuer
+    # -- API group of the issuer. Only change this for an external issuer.
+    group: cert-manager.io
+  # -- Subject common name. Deprecated by the CA/Browser Forum and ignored by
+  # most public issuers; the SAN list below is what actually matters.
+  commonName: ""
+  # -- Hostnames on the certificate. Left empty, the chart uses the hosts its
+  # own Ingress or HTTPRoute already serves.
+  dnsNames: []
+  # -- Total lifetime. Empty takes the issuer default; Let's Encrypt caps it
+  # at 90 days regardless of what is asked for.
+  duration: ""
+  # -- How long before expiry to renew. Empty renews at two thirds of the
+  # lifetime.
+  renewBefore: ""
+  # -- Key algorithm and size. Rotating on renewal is the safer default: a key
+  # that never changes turns one disclosure into a permanent one.
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

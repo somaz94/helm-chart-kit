@@ -1,0 +1,41 @@
+{{- if .Values.certificate.enabled -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  {{- $secret := .Values.certificate.secretName | default (printf "%s-tls" (include "[[ .ChartName ]].fullname" .)) }}
+  secretName: {{ $secret }}
+  issuerRef:
+    name: {{ .Values.certificate.issuerRef.name }}
+    kind: {{ .Values.certificate.issuerRef.kind }}
+    group: {{ .Values.certificate.issuerRef.group }}
+  {{- with .Values.certificate.commonName }}
+  commonName: {{ . }}
+  {{- end }}
+  dnsNames:
+    {{- if .Values.certificate.dnsNames }}
+    {{- toYaml .Values.certificate.dnsNames | nindent 4 }}
+    {{- else }}
+    {{- /* Fall back to whatever the chart already routes, so the certificate
+           and the Ingress cannot drift apart. */}}
+    {{- range (.Values.ingress).hosts }}
+    - {{ .host }}
+    {{- end }}
+    {{- range (.Values.httpRoute).hostnames }}
+    - {{ . }}
+    {{- end }}
+    {{- end }}
+  {{- with .Values.certificate.duration }}
+  duration: {{ . }}
+  {{- end }}
+  {{- with .Values.certificate.renewBefore }}
+  renewBefore: {{ . }}
+  {{- end }}
+  {{- with .Values.certificate.privateKey }}
+  privateKey:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

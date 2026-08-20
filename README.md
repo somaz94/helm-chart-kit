@@ -223,6 +223,8 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK027` | error | Container runs privileged |
 | `HCK028`–`HCK029` | warn | No readiness or liveness probe on a long-running workload |
 | `HCK030` | warn | Chart renders more than one primary workload |
+| `HCK031` | warn | HPA and a KEDA ScaledObject both scale the workload |
+| `HCK032` | warn | HPA alongside a VPA in an evicting update mode |
 
 Warnings pass by default; `--strict` fails on them.
 

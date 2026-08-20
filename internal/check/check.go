@@ -126,6 +126,7 @@ func Run(c *chart.Chart, opts Options) (*Report, error) {
 		rep.Findings = append(rep.Findings, manifestRules(o)...)
 	}
 	rep.Findings = append(rep.Findings, manifestSetRules(objs)...)
+	rep.Findings = append(rep.Findings, scalerRules(objs)...)
 	return rep, nil
 }
 
@@ -163,6 +164,54 @@ func manifestSetRules(objs []object) []Finding {
 			"chart renders %d primary workloads (%s); they share image, resources and updateStrategy, so one set of values cannot describe both",
 			len(workloads), strings.Join(workloads, ", ")),
 	}}
+}
+
+// scalerRules catches two controllers driving the same workload's size.
+//
+// Nothing refuses these at generation time the way a second workload is
+// refused: each is a legitimate resource to add, and it is the combination
+// that is wrong. They are only visible once the chart renders, which is why
+// they live here rather than in scaffold.
+func scalerRules(objs []object) []Finding {
+	var out []Finding
+	var hpa, scaled, vpaAuto []string
+	for _, o := range objs {
+		switch o.Kind {
+		case "HorizontalPodAutoscaler":
+			hpa = append(hpa, o.Name)
+		case "ScaledObject":
+			scaled = append(scaled, o.Name)
+		case "VerticalPodAutoscaler":
+			// Off and Initial only recommend, and coexist with an HPA. Auto
+			// and Recreate evict pods to resize them.
+			if mode := vpaUpdateMode(o); mode == "Auto" || mode == "Recreate" {
+				vpaAuto = append(vpaAuto, o.Name)
+			}
+		}
+	}
+	if len(hpa) > 0 && len(scaled) > 0 {
+		out = append(out, Finding{Severity: Warn, Rule: "HCK031", Where: "chart",
+			Message: fmt.Sprintf(
+				"chart renders both a HorizontalPodAutoscaler (%s) and a KEDA ScaledObject (%s); KEDA creates an HPA of its own, so the two fight over the replica count on every reconcile",
+				strings.Join(hpa, ", "), strings.Join(scaled, ", "))})
+	}
+	if len(hpa) > 0 && len(vpaAuto) > 0 {
+		out = append(out, Finding{Severity: Warn, Rule: "HCK032", Where: "chart",
+			Message: fmt.Sprintf(
+				"chart renders a HorizontalPodAutoscaler (%s) alongside a VerticalPodAutoscaler in an evicting update mode (%s); both read utilization and drive it in opposite directions. Set updateMode to Off or Initial, or scale the two on different resources",
+				strings.Join(hpa, ", "), strings.Join(vpaAuto, ", "))})
+	}
+	return out
+}
+
+// vpaUpdateMode reads spec.updatePolicy.updateMode, or "" if it is unset.
+func vpaUpdateMode(o object) string {
+	policy, ok := o.Spec["updatePolicy"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	mode, _ := policy["updateMode"].(string)
+	return mode
 }
 
 func nonEmpty(ss ...string) []string {

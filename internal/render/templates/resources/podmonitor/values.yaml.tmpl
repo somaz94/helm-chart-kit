@@ -1,0 +1,36 @@
+# =============================================================================
+# Pod Monitor
+#
+# Scrapes pods directly rather than through a Service, which is what a
+# DaemonSet node agent needs — it has no Service to scrape through, and a
+# Service would collapse every node's metrics behind one endpoint anyway.
+#
+# Deliberately a top-level key rather than metrics.podMonitor: the values
+# merge works on top-level keys, `metrics` already belongs to the
+# ServiceMonitor, and a second resource contributing into it would have its
+# whole section skipped.
+#
+# Requires the Prometheus Operator CRDs. additionalLabels usually has to carry
+# whatever label the Prometheus resource selects PodMonitors by — without it
+# the object is created and quietly never scraped.
+# =============================================================================
+podMonitor:
+  # -- Create the PodMonitor
+  enabled: false
+  # -- Namespace to create it in. Empty uses the release namespace.
+  namespace: ""
+  # -- Labels the Prometheus resource selects on
+  additionalLabels: {}
+  # -- Name of the container port to scrape. Unlike a ServiceMonitor this is a
+  # container port, so the port has to be named in the pod spec.
+  port: metrics
+  # -- Metrics path
+  path: /metrics
+  # -- Scrape interval
+  interval: 30s
+  # -- Scrape timeout. Must stay below interval.
+  scrapeTimeout: 10s
+  # -- Relabel rules applied before the scrape
+  relabelings: []
+  # -- Relabel rules applied to scraped samples
+  metricRelabelings: []

@@ -39,6 +39,10 @@ Every preset carries exactly one workload. That is enforced by a test, not a con
 | `pvc` | `v1` | `persistence` | `helm.sh/resource-policy: keep` by default. |
 | `servicemonitor` | `monitoring.coreos.com/v1` | `metrics` | Needs Prometheus Operator. Set `additionalLabels`, or it is never scraped. |
 | `prometheusrule` | `monitoring.coreos.com/v1` | `prometheusRule` | Rules run through `tpl`, so they can scope to the release. |
+| `podmonitor` | `monitoring.coreos.com/v1` | `podMonitor` | Scrapes pods with no Service in front, which is what a DaemonSet needs. |
+| `certificate` | `cert-manager.io/v1` | `certificate` | Needs cert-manager. `dnsNames` defaults to the hosts the chart already serves. |
+| `scaledobject` | `keda.sh/v1alpha1` | `scaledObject` | Needs KEDA. Do not enable `autoscaling` too — KEDA owns its own HPA. |
+| `vpa` | `autoscaling.k8s.io/v1` | `verticalPodAutoscaler` | `updateMode: "Off"` by default; quoted, or YAML reads it as `false`. |
 | `tests` | `v1` | `tests` | `helm test` hook that dials the Service. |
 
 <br/>

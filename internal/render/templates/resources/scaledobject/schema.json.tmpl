@@ -1,0 +1,53 @@
+{
+  "scaledObject": {
+    "type": "object",
+    "description": "KEDA ScaledObject for event-driven autoscaling. KEDA creates and owns an HPA of its own, so autoscaling.enabled must stay off — two HPAs targeting one workload fight over the replica count.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the ScaledObject"
+      },
+      "targetKind": {
+        "type": "string",
+        "enum": ["Deployment", "StatefulSet"],
+        "description": "Kind of the scale target"
+      },
+      "minReplicaCount": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Lower bound. Zero is the point of KEDA: an idle consumer costs nothing."
+      },
+      "maxReplicaCount": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Upper bound"
+      },
+      "pollingInterval": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Seconds between checks of the trigger source"
+      },
+      "cooldownPeriod": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Seconds after the last trigger before scaling back down"
+      },
+      "idleReplicaCount": {
+        "type": ["integer", "string", "null"],
+        "description": "Replica count while the ScaledObject is paused. Empty leaves it unset."
+      },
+      "fallback": {
+        "type": "object",
+        "description": "Replica count to hold when the trigger source cannot be reached"
+      },
+      "advanced": {
+        "type": "object",
+        "description": "Passed through to spec.advanced, e.g. horizontalPodAutoscalerConfig"
+      },
+      "triggers": {
+        "type": "array",
+        "description": "Trigger list. Empty renders an object KEDA rejects."
+      }
+    }
+  }
+}

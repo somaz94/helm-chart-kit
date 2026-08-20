@@ -1,0 +1,31 @@
+{{- if .Values.verticalPodAutoscaler.enabled -}}
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: {{ .Values.verticalPodAutoscaler.targetKind }}
+    name: {{ include "[[ .ChartName ]].fullname" . }}
+  updatePolicy:
+    updateMode: {{ .Values.verticalPodAutoscaler.updateMode | quote }}
+  resourcePolicy:
+    containerPolicies:
+      - containerName: '*'
+        controlledValues: {{ .Values.verticalPodAutoscaler.controlledValues }}
+        {{- with .Values.verticalPodAutoscaler.controlledResources }}
+        controlledResources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.verticalPodAutoscaler.minAllowed }}
+        minAllowed:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.verticalPodAutoscaler.maxAllowed }}
+        maxAllowed:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}

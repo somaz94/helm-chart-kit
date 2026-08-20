@@ -1,0 +1,42 @@
+# =============================================================================
+# KEDA ScaledObject
+#
+# Event-driven autoscaling: scale on queue depth rather than on CPU, which is
+# what a worker actually needs — CPU only rises once the backlog is already
+# being felt.
+#
+# KEDA creates and owns a HorizontalPodAutoscaler of its own, so do not enable
+# autoscaling.enabled at the same time. Two HPAs targeting one workload fight
+# over the replica count on every reconcile.
+#
+# Requires KEDA.
+# =============================================================================
+scaledObject:
+  # -- Create the ScaledObject
+  enabled: false
+  # -- Kind of the scale target
+  targetKind: Deployment
+  # -- Lower bound. Zero is the point of KEDA: an idle consumer costs nothing.
+  minReplicaCount: 0
+  # -- Upper bound
+  maxReplicaCount: 10
+  # -- Seconds between checks of the trigger source
+  pollingInterval: 30
+  # -- Seconds after the last trigger before scaling back down
+  cooldownPeriod: 300
+  # -- Replica count while the ScaledObject is paused. Empty leaves it unset.
+  idleReplicaCount: ""
+  # -- Replica count to hold when the trigger source cannot be reached, so an
+  # unreachable broker does not scale the consumer to zero.
+  fallback: {}
+  # -- Passed through to spec.advanced, e.g. horizontalPodAutoscalerConfig
+  advanced: {}
+  # -- Trigger list. Empty renders an object KEDA rejects, so set this before
+  # enabling.
+  triggers: []
+  #  - type: rabbitmq
+  #    metadata:
+  #      protocol: amqp
+  #      queueName: jobs
+  #      mode: QueueLength
+  #      value: "20"

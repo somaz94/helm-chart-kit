@@ -124,7 +124,7 @@ jobs:
           chart="$workdir/demo"
 
           cp "$chart/values.yaml" /tmp/values.before
-          hck add servicemonitor prometheusrule externalsecret pvc rbac --chart "$chart"
+          hck add servicemonitor prometheusrule externalsecret pvc rbac certificate podmonitor scaledobject vpa --chart "$chart"
           hck check --chart "$chart" --strict
 
           # The bytes that were there before must still be there, unchanged.
@@ -155,7 +155,7 @@ jobs:
 
           # Adding a resource must carry the schema along with values.yaml.
           chart="$workdir/web"
-          hck add servicemonitor prometheusrule job secret --chart "$chart"
+          hck add servicemonitor prometheusrule job secret certificate podmonitor scaledobject vpa --chart "$chart"
           hck schema --chart "$chart" --check
           hck check --chart "$chart" --strict
 

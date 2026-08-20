@@ -1,0 +1,45 @@
+{
+  "podMonitor": {
+    "type": "object",
+    "description": "Prometheus Operator PodMonitor. Scrapes pods directly rather than through a Service, which is what a DaemonSet node agent needs. Top-level rather than under metrics, because the values merge works on top-level keys and metrics already belongs to the ServiceMonitor.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the PodMonitor"
+      },
+      "namespace": {
+        "type": "string",
+        "description": "Namespace to create it in. Empty uses the release namespace."
+      },
+      "additionalLabels": {
+        "type": "object",
+        "description": "Labels the Prometheus resource selects on"
+      },
+      "port": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Name of the container port to scrape. A container port, not a Service port, so it has to be named in the pod spec."
+      },
+      "path": {
+        "type": "string",
+        "description": "Metrics path"
+      },
+      "interval": {
+        "type": "string",
+        "description": "Scrape interval, as a Prometheus duration"
+      },
+      "scrapeTimeout": {
+        "type": "string",
+        "description": "Scrape timeout. Must stay below interval."
+      },
+      "relabelings": {
+        "type": "array",
+        "description": "Relabel rules applied before the scrape"
+      },
+      "metricRelabelings": {
+        "type": "array",
+        "description": "Relabel rules applied to scraped samples"
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "certificate": {
+    "type": "object",
+    "description": "cert-manager Certificate. Requires cert-manager and an Issuer or ClusterIssuer that can answer the challenge.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the Certificate"
+      },
+      "secretName": {
+        "type": "string",
+        "description": "Name of the Secret cert-manager writes the key pair into. Empty derives it from the chart fullname."
+      },
+      "issuerRef": {
+        "type": "object",
+        "description": "Issuer that signs the certificate",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Issuer or ClusterIssuer name"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["Issuer", "ClusterIssuer"],
+            "description": "Issuer (namespaced) or ClusterIssuer"
+          },
+          "group": {
+            "type": "string",
+            "description": "API group of the issuer"
+          }
+        }
+      },
+      "commonName": {
+        "type": "string",
+        "description": "Subject common name. Deprecated and ignored by most public issuers; the SAN list is what matters."
+      },
+      "dnsNames": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Hostnames on the certificate. Empty falls back to the hosts the chart's own Ingress or HTTPRoute serves."
+      },
+      "duration": {
+        "type": "string",
+        "description": "Total lifetime, as a Go duration. Empty takes the issuer default."
+      },
+      "renewBefore": {
+        "type": "string",
+        "description": "How long before expiry to renew, as a Go duration."
+      },
+      "privateKey": {
+        "type": "object",
+        "description": "Key algorithm, size and rotation policy",
+        "properties": {
+          "algorithm": {
+            "type": "string",
+            "enum": ["RSA", "ECDSA", "Ed25519"]
+          },
+          "size": {
+            "type": "integer"
+          },
+          "rotationPolicy": {
+            "type": "string",
+            "enum": ["Never", "Always"]
+          }
+        }
+      }
+    }
+  }
+}

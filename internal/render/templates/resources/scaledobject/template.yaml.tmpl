@@ -1,0 +1,29 @@
+{{- if .Values.scaledObject.enabled -}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    kind: {{ .Values.scaledObject.targetKind }}
+    name: {{ include "[[ .ChartName ]].fullname" . }}
+  minReplicaCount: {{ .Values.scaledObject.minReplicaCount }}
+  maxReplicaCount: {{ .Values.scaledObject.maxReplicaCount }}
+  pollingInterval: {{ .Values.scaledObject.pollingInterval }}
+  cooldownPeriod: {{ .Values.scaledObject.cooldownPeriod }}
+  {{- with .Values.scaledObject.idleReplicaCount }}
+  idleReplicaCount: {{ . }}
+  {{- end }}
+  {{- with .Values.scaledObject.fallback }}
+  fallback:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.scaledObject.advanced }}
+  advanced:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  triggers:
+    {{- toYaml .Values.scaledObject.triggers | nindent 4 }}
+{{- end }}

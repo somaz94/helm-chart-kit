@@ -1,0 +1,43 @@
+{
+  "verticalPodAutoscaler": {
+    "type": "object",
+    "description": "VerticalPodAutoscaler. In Auto mode it evicts pods to resize them, and must not be combined with an HPA scaling on the same resource. Requires the VPA controller, which is not part of Kubernetes.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the VerticalPodAutoscaler"
+      },
+      "targetKind": {
+        "type": "string",
+        "enum": ["Deployment", "StatefulSet", "DaemonSet"],
+        "description": "Kind of the target"
+      },
+      "updateMode": {
+        "type": "string",
+        "enum": ["Off", "Initial", "Recreate", "Auto"],
+        "description": "Off only records recommendations. Initial applies them to new pods; Auto and Recreate evict running ones."
+      },
+      "controlledValues": {
+        "type": "string",
+        "enum": ["RequestsAndLimits", "RequestsOnly"],
+        "description": "RequestsAndLimits scales the limit with the request; RequestsOnly leaves limits alone."
+      },
+      "controlledResources": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["cpu", "memory"]
+        },
+        "description": "Resources the VPA may size"
+      },
+      "minAllowed": {
+        "type": "object",
+        "description": "Floor for the recommendation"
+      },
+      "maxAllowed": {
+        "type": "object",
+        "description": "Ceiling for the recommendation. An unbounded VPA can ask for more than any node has."
+      }
+    }
+  }
+}

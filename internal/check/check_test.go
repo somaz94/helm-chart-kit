@@ -310,3 +310,69 @@ func TestManifestSetRulesFlagsTwoWorkloads(t *testing.T) {
 		}
 	}
 }
+
+func TestScalerRulesQuietOnLegitimateCombinations(t *testing.T) {
+	off := func(mode string) object {
+		return object{Kind: "VerticalPodAutoscaler", Name: "a",
+			Spec: map[string]any{"updatePolicy": map[string]any{"updateMode": mode}}}
+	}
+	for name, objs := range map[string][]object{
+		"nothing":              nil,
+		"hpa alone":            {{Kind: "HorizontalPodAutoscaler", Name: "a"}},
+		"keda alone":           {{Kind: "ScaledObject", Name: "a"}},
+		"vpa alone in Auto":    {off("Auto")},
+		"hpa with vpa Off":     {{Kind: "HorizontalPodAutoscaler", Name: "a"}, off("Off")},
+		"hpa with vpa Initial": {{Kind: "HorizontalPodAutoscaler", Name: "a"}, off("Initial")},
+		"hpa with vpa unset":   {{Kind: "HorizontalPodAutoscaler", Name: "a"}, {Kind: "VerticalPodAutoscaler", Name: "a"}},
+		"keda with vpa Auto":   {{Kind: "ScaledObject", Name: "a"}, off("Auto")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := scalerRules(objs); len(got) != 0 {
+				t.Errorf("produced findings: %+v", got)
+			}
+		})
+	}
+}
+
+func TestScalerRulesFlagsHPAWithKEDA(t *testing.T) {
+	got := scalerRules([]object{
+		{Kind: "HorizontalPodAutoscaler", Name: "a"},
+		{Kind: "ScaledObject", Name: "b"},
+	})
+	if len(got) != 1 || got[0].Rule != "HCK031" {
+		t.Fatalf("got %+v, want one HCK031", got)
+	}
+	if got[0].Severity != Warn {
+		t.Errorf("severity = %q", got[0].Severity)
+	}
+}
+
+// Only the evicting modes conflict; Off and Initial merely recommend.
+func TestScalerRulesFlagsHPAWithEvictingVPA(t *testing.T) {
+	for _, mode := range []string{"Auto", "Recreate"} {
+		t.Run(mode, func(t *testing.T) {
+			got := scalerRules([]object{
+				{Kind: "HorizontalPodAutoscaler", Name: "a"},
+				{Kind: "VerticalPodAutoscaler", Name: "b",
+					Spec: map[string]any{"updatePolicy": map[string]any{"updateMode": mode}}},
+			})
+			if len(got) != 1 || got[0].Rule != "HCK032" {
+				t.Fatalf("got %+v, want one HCK032", got)
+			}
+		})
+	}
+}
+
+func TestVPAUpdateModeHandlesAMalformedSpec(t *testing.T) {
+	for name, o := range map[string]object{
+		"no spec":           {Kind: "VerticalPodAutoscaler"},
+		"policy not a map":  {Spec: map[string]any{"updatePolicy": "Auto"}},
+		"mode not a string": {Spec: map[string]any{"updatePolicy": map[string]any{"updateMode": 3}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := vpaUpdateMode(o); got != "" {
+				t.Errorf("got %q, want empty", got)
+			}
+		})
+	}
+}

@@ -514,3 +514,30 @@ func TestHelmRejectsAValueTheSchemaForbids(t *testing.T) {
 		t.Errorf("helm failed for some other reason:\n%s", out)
 	}
 }
+
+// Every non-workload resource has to be addable to one chart at once, and the
+// result has to render and pass its own check. A resource that only works in
+// isolation is one nobody finds out about until they add the second one.
+func TestAddEveryNonWorkloadResource(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--preset", "web", "--schema")
+	dir := filepath.Join(parent, "demo")
+
+	var add []string
+	for _, r := range catalog.Resources() {
+		if !r.Workload {
+			add = append(add, r.Name)
+		}
+	}
+	mustRun(t, append([]string{"add", "--chart", dir}, add...)...)
+
+	// The schema has to have grown with values.yaml, or helm rejects the chart.
+	mustRun(t, "schema", "--chart", dir, "--check")
+	out := mustRun(t, "check", "--chart", dir, "--strict")
+	if !strings.Contains(out, "no findings") {
+		t.Fatalf("a chart carrying every resource does not pass its own check:\n%s", out)
+	}
+}

@@ -1,0 +1,38 @@
+# =============================================================================
+# Vertical Pod Autoscaler
+#
+# Sizes requests from observed usage, which is the half of capacity planning
+# the HPA does not do. Off by default on purpose: in Auto mode the VPA evicts
+# pods to resize them, and it must not be combined with an HPA scaling on the
+# same resource — the two read the same signal and drive it in opposite
+# directions.
+#
+# Requires the VPA controller, which is not part of Kubernetes.
+# =============================================================================
+verticalPodAutoscaler:
+  # -- Create the VerticalPodAutoscaler
+  enabled: false
+  # -- Kind of the target
+  targetKind: Deployment
+  # -- Off only records recommendations, which is where to start: read them for
+  # a week before letting anything act on them. Initial applies them to new
+  # pods; Auto and Recreate evict running ones to resize.
+  #
+  # Quoted because unquoted Off is the YAML 1.1 boolean false.
+  updateMode: "Off"
+  # -- RequestsAndLimits scales the limit with the request, keeping their ratio.
+  # RequestsOnly leaves limits alone.
+  controlledValues: RequestsOnly
+  # -- Resources the VPA may size. Leaving memory alone while an HPA scales on
+  # CPU is the usual way to run both.
+  controlledResources: []
+  #  - memory
+  # -- Floor for the recommendation
+  minAllowed: {}
+  #  cpu: 50m
+  #  memory: 64Mi
+  # -- Ceiling for the recommendation. Set it: an unbounded VPA will happily
+  # ask for more than any node has, and the pod then never schedules.
+  maxAllowed: {}
+  #  cpu: "2"
+  #  memory: 2Gi
