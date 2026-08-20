@@ -77,7 +77,7 @@ then; the point is to catch a typo, not to model the Kubernetes API.`,
 				strict = scaffold.SchemaIsStrictBytes(current)
 			}
 
-			doc, _, err := scaffold.BuildSchema(scaffold.DataFor(c), resources, strict)
+			doc, res, err := scaffold.BuildSchema(scaffold.DataFor(c), resources, strict)
 			if err != nil {
 				return err
 			}
@@ -111,7 +111,14 @@ then; the point is to catch a typo, not to model the Kubernetes API.`,
 					return fmt.Errorf("write %s: %w", scaffold.SchemaFile, err)
 				}
 				fprintf(out, "%s %s\n\n", p.bold("wrote"), c.SchemaPath())
-				fprintf(out, "  %d resource(s): %s\n", len(resources), p.dim(joinNames(resources)))
+				fprintf(out, "  %d key(s) from %d resource(s): %s\n", len(res.Added), len(resources), p.dim(joinNames(resources)))
+				// A key two resources both define is described once, by the
+				// first to claim it — the same resolution values.yaml made.
+				// Worth saying, because the description a user goes looking
+				// for may have come from the other one.
+				if len(res.Skipped) > 0 {
+					fprintf(out, "  %s %s\n", p.dim("described once, by the resource that owns it:"), p.dim(strings.Join(res.Skipped, " ")))
+				}
 				fprintf(out, "\nNext:\n  hck check --chart %s\n", c.Dir)
 				return nil
 

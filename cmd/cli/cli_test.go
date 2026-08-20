@@ -366,6 +366,32 @@ func TestSchemaStrictClosesTheTopLevel(t *testing.T) {
 	}
 }
 
+// The write report names the keys a second resource did not get to describe,
+// because the description a user goes looking for came from the other one.
+func TestSchemaWriteReportsKeysOwnedByAnotherResource(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--preset", "stateful", "--with", "pvc")
+	dir := filepath.Join(parent, "demo")
+
+	out := mustRun(t, "schema", "--chart", dir, "--write")
+	// The StatefulSet and the PVC both define persistence; only one wins.
+	if !strings.Contains(out, "persistence") {
+		t.Errorf("the report does not mention the contested key:\n%s", out)
+	}
+	if !strings.Contains(out, "key(s) from") {
+		t.Errorf("the report does not count the keys it wrote:\n%s", out)
+	}
+}
+
+// With no contested key there is nothing to report, and the line is omitted.
+func TestSchemaWriteOmitsTheOwnershipLineWhenEmpty(t *testing.T) {
+	dir := schemaChart(t)
+	out := mustRun(t, "schema", "--chart", dir, "--write")
+	if strings.Contains(out, "described once") {
+		t.Errorf("the ownership line appeared with nothing to say:\n%s", out)
+	}
+}
+
 func TestSchemaRejectsWriteAndCheckTogether(t *testing.T) {
 	dir := schemaChart(t)
 	if _, err := run(t, "schema", "--chart", dir, "--write", "--check"); err == nil {

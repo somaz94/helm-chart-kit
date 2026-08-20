@@ -293,7 +293,7 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 		return nil, err
 	}
 	if currentSchema != nil {
-		after := append(existing, resources...)
+		after := union(existing, resources)
 		doc, _, err := BuildSchema(data, after, SchemaIsStrictBytes(currentSchema))
 		if err != nil {
 			return nil, err
@@ -473,6 +473,23 @@ func ChartResources(c *chart.Chart) ([]catalog.Resource, error) {
 	return canonicalOrder(resourcesFrom(presentResources(files))), nil
 }
 
+// union merges two resource lists, dropping duplicates. "hck add configmap"
+// against a chart that already has one names it in both, and a schema built
+// from the doubled list renders the same fragment twice and reports phantom
+// skipped keys.
+func union(a, b []catalog.Resource) []catalog.Resource {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]catalog.Resource, 0, len(a)+len(b))
+	for _, r := range append(append([]catalog.Resource{}, a...), b...) {
+		if seen[r.Name] {
+			continue
+		}
+		seen[r.Name] = true
+		out = append(out, r)
+	}
+	return out
+}
+
 // resourcesFrom maps a presence set to catalog entries, ordered by name.
 func resourcesFrom(present map[string]bool) []catalog.Resource {
 	out := make([]catalog.Resource, 0, len(present))
@@ -497,7 +514,7 @@ func BuildSchema(data render.Data, resources []catalog.Resource, strict bool) ([
 	for _, r := range canonicalOrder(resources) {
 		body, err := render.ResourceSchema(r.Name, data)
 		if err != nil {
-			return nil, empty, err
+			return nil, empty, fmt.Errorf("schema fragment for %s: %w", r.Name, err)
 		}
 		frags = append(frags, schema.Fragment{Resource: r.Name, Body: string(body)})
 	}

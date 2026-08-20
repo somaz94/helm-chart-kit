@@ -108,7 +108,7 @@ func BaseSchema(d Data) ([]byte, error) {
 // It backs the test that keeps the catalog and the template tree in step.
 func HasResource(resource string) bool {
 	for _, f := range []string{"template.yaml.tmpl", "values.yaml.tmpl", "schema.json.tmpl"} {
-		if _, err := files.Open(path.Join("templates/resources", resource, f)); err != nil {
+		if _, err := fs.Stat(files, path.Join("templates/resources", resource, f)); err != nil {
 			return false
 		}
 	}

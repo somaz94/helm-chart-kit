@@ -436,7 +436,7 @@ func TestPlanAddRegeneratesAnExistingSchema(t *testing.T) {
 	}
 }
 
-func TestPlanAddLeavesACharWithNoSchemaAlone(t *testing.T) {
+func TestPlanAddLeavesAChartWithNoSchemaAlone(t *testing.T) {
 	c := newChart(t, "web")
 	plan, err := PlanAdd(c, []string{"servicemonitor"}, false)
 	if err != nil {
@@ -480,24 +480,68 @@ func TestPlanAddSkipsAnUpToDateSchema(t *testing.T) {
 // reports drift the moment it is written.
 func TestBuildSchemaRoundTripsThroughDisk(t *testing.T) {
 	for _, preset := range catalog.PresetNames() {
-		t.Run(preset, func(t *testing.T) {
-			c := newSchemaChart(t, preset, false)
-			onDisk, err := c.Schema()
-			if err != nil {
-				t.Fatal(err)
+		for _, strict := range []bool{false, true} {
+			name := preset
+			if strict {
+				name += "-strict"
 			}
-			resources, err := ChartResources(c)
-			if err != nil {
-				t.Fatal(err)
-			}
-			rebuilt, _, err := BuildSchema(DataFor(c), resources, false)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(onDisk, rebuilt) {
-				t.Error("rebuilding from the chart directory does not reproduce the written schema")
-			}
-		})
+			t.Run(name, func(t *testing.T) {
+				c := newSchemaChart(t, preset, strict)
+				onDisk, err := c.Schema()
+				if err != nil {
+					t.Fatal(err)
+				}
+				resources, err := ChartResources(c)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rebuilt, _, err := BuildSchema(DataFor(c), resources, SchemaIsStrictBytes(onDisk))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(onDisk, rebuilt) {
+					t.Error("rebuilding from the chart directory does not reproduce the written schema")
+				}
+			})
+		}
+	}
+}
+
+// A resource named on the command line that the chart already has must not be
+// counted twice when the schema is rebuilt.
+func TestUnionDropsDuplicates(t *testing.T) {
+	a, _ := catalog.LookupResource("configmap")
+	b, _ := catalog.LookupResource("service")
+	got := union([]catalog.Resource{a, b}, []catalog.Resource{a})
+	if len(got) != 2 {
+		t.Fatalf("union produced %d entries, want 2: %v", len(got), names(got))
+	}
+	if got[0].Name != "configmap" || got[1].Name != "service" {
+		t.Errorf("union reordered its inputs: %v", names(got))
+	}
+}
+
+// The schema is rebuilt from the chart plus what is being added, so re-adding
+// a resource the chart already carries must leave the document unchanged.
+func TestPlanAddReAddingAResourceLeavesTheSchemaAlone(t *testing.T) {
+	c := newSchemaChart(t, "web", false)
+	before, err := c.Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanAdd(c, []string{"configmap"}, false) // already in the preset
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	after, err := c.Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("re-adding a resource the chart already has rewrote the schema")
 	}
 }
 

@@ -87,14 +87,14 @@ func TestChartFileUnknown(t *testing.T) {
 	}
 }
 
-// Every catalog entry must have both of its template files, and both must
+// Every catalog entry must have all three of its template files, and each must
 // render. This is the check that keeps catalog.go and the template tree from
 // drifting apart.
 func TestEveryCatalogResourceRenders(t *testing.T) {
 	for _, name := range embeddedResourceNames(t) {
 		t.Run(name, func(t *testing.T) {
 			if !HasResource(name) {
-				t.Fatalf("templates/resources/%s is missing template.yaml.tmpl or values.yaml.tmpl", name)
+				t.Fatalf("templates/resources/%s is missing template.yaml.tmpl, values.yaml.tmpl or schema.json.tmpl", name)
 			}
 			tmpl, err := ResourceTemplate(name, testData())
 			if err != nil {
