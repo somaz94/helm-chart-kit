@@ -1,0 +1,6 @@
+metrics:
+  serviceMonitor:
+    # -- kube-prometheus-stack selects on its own release name. Getting this
+    # wrong creates the object and scrapes nothing.
+    additionalLabels:
+      release: kube-prometheus-stack

@@ -1,0 +1,6 @@
+httpRoute:
+  # -- Gateway provisioned by the AWS Gateway API Controller, which fronts
+  # VPC Lattice rather than an ALB.
+  parentRefs:
+    - name: lattice-gateway
+      namespace: aws-application-networking-system

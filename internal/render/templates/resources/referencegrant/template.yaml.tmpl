@@ -1,0 +1,19 @@
+{{- if .Values.referenceGrant.enabled -}}
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  from:
+    {{- range .Values.referenceGrant.from }}
+    - group: {{ .group | default "gateway.networking.k8s.io" | quote }}
+      kind: {{ .kind }}
+      namespace: {{ .namespace }}
+    {{- end }}
+  to:
+    - group: ""
+      kind: Service
+      name: {{ include "[[ .ChartName ]].fullname" . }}
+{{- end }}

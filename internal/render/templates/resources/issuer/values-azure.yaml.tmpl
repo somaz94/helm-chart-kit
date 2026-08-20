@@ -1,0 +1,9 @@
+issuer:
+  kind: acme
+  acme:
+    solvers:
+      - dns01:
+          azureDNS:
+            resourceGroupName: dns
+            subscriptionID: 00000000-0000-0000-0000-000000000000
+            hostedZoneName: example.com

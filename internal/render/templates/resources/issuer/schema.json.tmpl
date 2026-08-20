@@ -1,0 +1,33 @@
+{
+  "issuer": {
+    "type": "object",
+    "description": "cert-manager Issuer, namespaced. Prefer a ClusterIssuer when many charts share one ACME account — each Issuer registers separately and Let's Encrypt rate-limits per account.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the Issuer"
+      },
+      "kind": {
+        "type": "string",
+        "enum": ["acme", "ca", "selfSigned"],
+        "description": "Which issuer backend to render"
+      },
+      "acme": {
+        "type": "object",
+        "description": "ACME configuration, read when kind is acme",
+        "properties": {
+          "server": { "type": "string" },
+          "email": { "type": "string" },
+          "solvers": { "type": "array" }
+        }
+      },
+      "ca": {
+        "type": "object",
+        "description": "CA configuration, read when kind is ca",
+        "properties": {
+          "secretName": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+networkPolicy:
+  # -- The VPC CNI enforces NetworkPolicy only when the controller is enabled
+  # on the add-on. Without it the object is accepted and ignored, which is
+  # worse than not having one.
+  enabled: false

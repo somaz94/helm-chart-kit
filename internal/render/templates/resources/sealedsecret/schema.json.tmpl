@@ -1,0 +1,21 @@
+{
+  "sealedSecret": {
+    "type": "object",
+    "description": "Sealed Secrets SealedSecret. The ciphertext is safe to commit; only the controller's private key can open it. A sealed value is bound to the namespace and name it was sealed for.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the SealedSecret"
+      },
+      "type": {
+        "type": "string",
+        "description": "Type of the Secret the controller unseals into"
+      },
+      "encryptedData": {
+        "type": "object",
+        "description": "Key to ciphertext, produced by kubeseal --raw",
+        "additionalProperties": { "type": "string" }
+      }
+    }
+  }
+}

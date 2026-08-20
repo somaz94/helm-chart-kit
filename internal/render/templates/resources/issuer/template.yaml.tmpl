@@ -1,0 +1,23 @@
+{{- if .Values.issuer.enabled -}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  {{- if eq .Values.issuer.kind "acme" }}
+  acme:
+    server: {{ .Values.issuer.acme.server }}
+    email: {{ .Values.issuer.acme.email }}
+    privateKeySecretRef:
+      name: {{ include "[[ .ChartName ]].fullname" . }}-acme-key
+    solvers:
+      {{- toYaml .Values.issuer.acme.solvers | nindent 6 }}
+  {{- else if eq .Values.issuer.kind "ca" }}
+  ca:
+    secretName: {{ .Values.issuer.ca.secretName }}
+  {{- else }}
+  selfSigned: {}
+  {{- end }}
+{{- end }}

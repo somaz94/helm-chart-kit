@@ -1,0 +1,20 @@
+# =============================================================================
+# Sealed Secret
+#
+# The ciphertext is safe to commit: only the controller's private key, which
+# lives in the cluster, can open it. Produce each value with
+#
+#   kubeseal --raw --namespace <ns> --name <fullname> --from-file=-
+#
+# Requires the Sealed Secrets controller. Note that a sealed value is bound to
+# the namespace and name it was sealed for, so moving the release breaks it
+# unless it was sealed with a wider scope.
+# =============================================================================
+sealedSecret:
+  # -- Create the SealedSecret
+  enabled: false
+  # -- Type of the Secret the controller unseals into
+  type: Opaque
+  # -- Key to ciphertext. Committing this is the point.
+  encryptedData: {}
+  #  password: AgBy3i4OJSWK+PiTySYZZA9rO4...

@@ -1,0 +1,6 @@
+httpRoute:
+  # -- Gateway from the GKE Gateway controller. Regional internal by default;
+  # gke-l7-global-external-managed for a public one.
+  parentRefs:
+    - name: internal-gateway
+      namespace: gateway-system

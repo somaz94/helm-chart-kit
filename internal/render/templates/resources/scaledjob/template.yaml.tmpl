@@ -1,0 +1,48 @@
+{{- if .Values.scaledJob.enabled -}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  jobTargetRef:
+    parallelism: {{ .Values.scaledJob.parallelism }}
+    completions: {{ .Values.scaledJob.completions }}
+    backoffLimit: {{ .Values.scaledJob.backoffLimit }}
+    template:
+      metadata:
+        labels:
+          {{- include "[[ .ChartName ]].selectorLabels" . | nindent 10 }}
+      spec:
+        serviceAccountName: {{ include "[[ .ChartName ]].serviceAccountName" . }}
+        restartPolicy: Never
+        {{- with .Values.imagePullSecrets }}
+        imagePullSecrets:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        containers:
+          - name: {{ .Chart.Name }}
+            image: {{ include "[[ .ChartName ]].image" . }}
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            {{- with .Values.scaledJob.command }}
+            command:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            {{- with .Values.env }}
+            env:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            resources:
+              {{- toYaml .Values.resources | nindent 14 }}
+            securityContext:
+              {{- toYaml .Values.securityContext | nindent 14 }}
+  pollingInterval: {{ .Values.scaledJob.pollingInterval }}
+  successfulJobsHistoryLimit: {{ .Values.scaledJob.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.scaledJob.failedJobsHistoryLimit }}
+  maxReplicaCount: {{ .Values.scaledJob.maxReplicaCount }}
+  scalingStrategy:
+    strategy: {{ .Values.scaledJob.scalingStrategy }}
+  triggers:
+    {{- toYaml .Values.scaledJob.triggers | nindent 4 }}
+{{- end }}

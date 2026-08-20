@@ -1,0 +1,7 @@
+certificate:
+  issuerRef:
+    # -- ClusterIssuer whose DNS-01 solver is azuredns. A wildcard or a
+    # private-DNS name cannot be proven over HTTP-01, so DNS-01 is the one
+    # that works here.
+    name: letsencrypt-azuredns
+    kind: ClusterIssuer

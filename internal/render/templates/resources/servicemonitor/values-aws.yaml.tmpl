@@ -1,0 +1,6 @@
+metrics:
+  serviceMonitor:
+    # -- Label the Amazon Managed Service for Prometheus scraper selects on.
+    # A self-managed kube-prometheus-stack usually wants release: kube-prometheus-stack.
+    additionalLabels:
+      release: prometheus

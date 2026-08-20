@@ -1,0 +1,40 @@
+# =============================================================================
+# KEDA ScaledJob
+#
+# One Job per queue item, rather than a long-running consumer that polls. Use
+# it when the work is bursty and each unit is expensive or slow: a ScaledObject
+# keeps pods alive between items, a ScaledJob does not.
+#
+# Requires KEDA. The workload's own image and resources are shared with the
+# rest of the chart; only the job shape lives here.
+# =============================================================================
+scaledJob:
+  # -- Create the ScaledJob
+  enabled: false
+  # -- Pods per Job
+  parallelism: 1
+  # -- Successful pods needed before the Job is complete
+  completions: 1
+  # -- Retries before a Job is marked failed
+  backoffLimit: 3
+  # -- Seconds between checks of the trigger source
+  pollingInterval: 30
+  # -- Upper bound on concurrent Jobs
+  maxReplicaCount: 10
+  # -- Completed Jobs kept
+  successfulJobsHistoryLimit: 3
+  # -- Failed Jobs kept, for inspection
+  failedJobsHistoryLimit: 3
+  # -- accurate counts running Jobs against the queue depth, so a slow
+  # consumer does not cause a second Job to be created for work already in
+  # flight. default is the older, more eager behaviour.
+  scalingStrategy: accurate
+  # -- Override the image entrypoint
+  command: []
+  # -- Trigger list. Empty renders an object KEDA rejects.
+  triggers: []
+  #  - type: aws-sqs-queue
+  #    metadata:
+  #      queueURL: https://sqs.eu-west-1.amazonaws.com/000000000000/jobs
+  #      queueLength: "1"
+  #      awsRegion: eu-west-1

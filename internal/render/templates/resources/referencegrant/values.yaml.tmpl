@@ -1,0 +1,18 @@
+# =============================================================================
+# Reference Grant
+#
+# Gateway API refuses cross-namespace references by default, so an HTTPRoute in
+# another namespace cannot reach this chart's Service until this object says it
+# may. The grant lives with the target — here — not with the route, which is
+# the point: the namespace being referenced decides.
+#
+# Requires the Gateway API CRDs.
+# =============================================================================
+referenceGrant:
+  # -- Create the ReferenceGrant
+  enabled: false
+  # -- Namespaces and kinds allowed to reference this chart's Service
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: gateway-system

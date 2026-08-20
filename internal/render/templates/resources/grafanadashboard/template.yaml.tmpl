@@ -1,0 +1,21 @@
+{{- if .Values.grafanaDashboard.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}-dashboards
+  {{- with .Values.grafanaDashboard.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+    {{ .Values.grafanaDashboard.sidecarLabel }}: {{ .Values.grafanaDashboard.sidecarLabelValue | quote }}
+  {{- with .Values.grafanaDashboard.folderAnnotation }}
+  annotations:
+    {{ . }}: {{ $.Values.grafanaDashboard.folder | quote }}
+  {{- end }}
+data:
+  {{- range $name, $body := .Values.grafanaDashboard.dashboards }}
+  {{ $name }}: |
+    {{- tpl $body $ | nindent 4 }}
+  {{- end }}
+{{- end }}

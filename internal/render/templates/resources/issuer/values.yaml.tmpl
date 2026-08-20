@@ -1,0 +1,29 @@
+# =============================================================================
+# Issuer
+#
+# A namespaced issuer, so the chart owns its own certificate authority rather
+# than depending on a ClusterIssuer someone else maintains. Requires
+# cert-manager.
+#
+# Prefer a ClusterIssuer when many charts share one ACME account: each Issuer
+# registers separately, and Let's Encrypt rate-limits per account.
+# =============================================================================
+issuer:
+  # -- Create the Issuer
+  enabled: false
+  # -- acme, ca or selfSigned
+  kind: selfSigned
+  acme:
+    # -- Directory endpoint. Point it at the staging URL until the challenge
+    # works — the production endpoint rate-limits failures hard.
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # -- Contact address for expiry notices
+    email: ""
+    # -- Challenge solvers
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
+  ca:
+    # -- Secret holding tls.crt and tls.key of the signing CA
+    secretName: ""

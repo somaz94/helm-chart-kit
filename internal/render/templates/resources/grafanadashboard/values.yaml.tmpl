@@ -1,0 +1,32 @@
+# =============================================================================
+# Grafana Dashboard
+#
+# A ConfigMap that Grafana's sidecar picks up. The dashboard travels with the
+# chart that emits the metrics, so it cannot drift away from them — a dashboard
+# maintained separately outlives the panel it was drawn for.
+#
+# Requires a Grafana deployed with the dashboard sidecar enabled, watching the
+# label below. Getting the label wrong is silent: the ConfigMap is created and
+# simply never read.
+#
+# Bodies are run through `tpl`, so a dashboard can scope its queries to this
+# release rather than matching every copy in the cluster.
+# =============================================================================
+grafanaDashboard:
+  # -- Create the ConfigMap
+  enabled: false
+  # -- Namespace to create it in. Empty uses the release namespace; the
+  # sidecar usually watches all of them.
+  namespace: ""
+  # -- Label the sidecar selects on
+  sidecarLabel: grafana_dashboard
+  # -- Value that label must have
+  sidecarLabelValue: "1"
+  # -- Annotation naming the Grafana folder. Empty leaves it in the default.
+  folderAnnotation: grafana_folder
+  # -- Folder to file the dashboards under
+  folder: Applications
+  # -- File name to dashboard JSON. The name has to end in .json.
+  dashboards: {}
+  #  overview.json: |
+  #    {"title": "{{ .Release.Name }} overview", "panels": []}

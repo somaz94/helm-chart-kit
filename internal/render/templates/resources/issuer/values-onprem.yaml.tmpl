@@ -1,0 +1,6 @@
+issuer:
+  # -- An air-gapped or private-DNS cluster cannot answer a public ACME
+  # challenge at all, so sign from a CA the cluster already trusts.
+  kind: ca
+  ca:
+    secretName: internal-ca

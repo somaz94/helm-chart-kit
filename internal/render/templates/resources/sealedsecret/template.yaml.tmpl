@@ -1,0 +1,17 @@
+{{- if .Values.sealedSecret.enabled -}}
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  encryptedData:
+    {{- toYaml .Values.sealedSecret.encryptedData | nindent 4 }}
+  template:
+    metadata:
+      name: {{ include "[[ .ChartName ]].fullname" . }}
+      labels:
+        {{- include "[[ .ChartName ]].labels" . | nindent 8 }}
+    type: {{ .Values.sealedSecret.type }}
+{{- end }}

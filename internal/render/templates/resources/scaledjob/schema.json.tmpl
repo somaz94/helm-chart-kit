@@ -1,0 +1,23 @@
+{
+  "scaledJob": {
+    "type": "object",
+    "description": "KEDA ScaledJob: one Job per queue item rather than a long-running consumer. Use it when work is bursty and each unit is expensive; a ScaledObject keeps pods alive between items, a ScaledJob does not.",
+    "properties": {
+      "enabled": { "type": "boolean", "description": "Create the ScaledJob" },
+      "parallelism": { "type": "integer", "minimum": 1, "description": "Pods per Job" },
+      "completions": { "type": "integer", "minimum": 1, "description": "Successful pods needed before the Job is complete" },
+      "backoffLimit": { "type": "integer", "minimum": 0, "description": "Retries before a Job is marked failed" },
+      "pollingInterval": { "type": "integer", "minimum": 1, "description": "Seconds between checks of the trigger source" },
+      "maxReplicaCount": { "type": "integer", "minimum": 1, "description": "Upper bound on concurrent Jobs" },
+      "successfulJobsHistoryLimit": { "type": "integer", "minimum": 0, "description": "Completed Jobs kept" },
+      "failedJobsHistoryLimit": { "type": "integer", "minimum": 0, "description": "Failed Jobs kept, for inspection" },
+      "scalingStrategy": {
+        "type": "string",
+        "enum": ["default", "custom", "accurate", "eager"],
+        "description": "accurate counts running Jobs against the queue depth, so work already in flight is not double-scheduled"
+      },
+      "command": { "type": "array", "items": { "type": "string" }, "description": "Override the image entrypoint" },
+      "triggers": { "type": "array", "description": "Trigger list. Empty renders an object KEDA rejects." }
+    }
+  }
+}

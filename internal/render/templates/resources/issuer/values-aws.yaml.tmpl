@@ -1,0 +1,8 @@
+issuer:
+  # -- ACME with a route53 solver, so the challenge does not need inbound HTTP
+  kind: acme
+  acme:
+    solvers:
+      - dns01:
+          route53:
+            region: eu-west-1

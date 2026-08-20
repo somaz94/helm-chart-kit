@@ -1,0 +1,6 @@
+httpRoute:
+  # -- Gateway from whichever implementation the cluster runs — Envoy Gateway,
+  # NGINX Gateway Fabric, Istio. The namespace is the one that installed it.
+  parentRefs:
+    - name: envoy-gateway
+      namespace: envoy-gateway-system
