@@ -61,12 +61,20 @@ then; the point is to catch a typo, not to model the Kubernetes API.`,
 				return fmt.Errorf("%s carries no resource this catalog knows, so there is nothing to describe", c.Meta.Name)
 			}
 
+			// Read the file once. Both questions asked of it — is it current,
+			// and was it written strict — are answered from the same bytes,
+			// and an unreadable one is reported rather than rebuilt permissive.
+			current, err := c.Schema()
+			if err != nil {
+				return err
+			}
+
 			// Without an explicit --strict, a schema already on disk keeps
 			// whatever it was generated with. Otherwise --check would compare
 			// a strict file against a permissive rebuild and always fail.
 			strict := opts.strict
 			if !cmd.Flags().Changed("strict") {
-				strict = scaffold.SchemaIsStrict(c)
+				strict = scaffold.SchemaIsStrictBytes(current)
 			}
 
 			doc, _, err := scaffold.BuildSchema(scaffold.DataFor(c), resources, strict)
@@ -74,20 +82,26 @@ then; the point is to catch a typo, not to model the Kubernetes API.`,
 				return err
 			}
 
+			// The command offered for a --check failure has to ask for the
+			// strictness --check just compared against. Without the flag,
+			// running it rebuilds the file the way it already is, --check
+			// fails again, and a CI job pinned to --check --strict never goes
+			// green no matter how many times the advice is followed.
+			fix := "hck schema --write"
+			if cmd.Flags().Changed("strict") {
+				fix = fmt.Sprintf("hck schema --write --strict=%t", strict)
+			}
+
 			out := cmd.OutOrStdout()
 			p := newPainter(out)
 
 			switch {
 			case opts.check:
-				current, err := c.Schema()
-				if err != nil {
-					return err
-				}
 				if current == nil {
-					return fmt.Errorf("%s has no %s — run: hck schema --write", c.Meta.Name, scaffold.SchemaFile)
+					return fmt.Errorf("%s has no %s — run: %s", c.Meta.Name, scaffold.SchemaFile, fix)
 				}
 				if !bytes.Equal(current, doc) {
-					return fmt.Errorf("%s is out of date — run: hck schema --write", scaffold.SchemaFile)
+					return fmt.Errorf("%s is out of date — run: %s", scaffold.SchemaFile, fix)
 				}
 				fprintf(out, "  %s %s is up to date\n", p.green("ok"), scaffold.SchemaFile)
 				return nil

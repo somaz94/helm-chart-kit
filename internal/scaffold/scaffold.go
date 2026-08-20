@@ -285,17 +285,20 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 	// A chart that already declares a schema has to keep declaring every key
 	// its values.yaml carries — Helm validates the two against each other on
 	// every render, so leaving the schema behind would break the chart.
-	if c.HasSchema() {
+	//
+	// One read answers both questions asked of the file, and surfaces an
+	// unreadable one instead of quietly rebuilding it permissive.
+	currentSchema, err := c.Schema()
+	if err != nil {
+		return nil, err
+	}
+	if currentSchema != nil {
 		after := append(existing, resources...)
-		doc, _, err := BuildSchema(data, after, SchemaIsStrict(c))
+		doc, _, err := BuildSchema(data, after, SchemaIsStrictBytes(currentSchema))
 		if err != nil {
 			return nil, err
 		}
-		current, err := c.Schema()
-		if err != nil {
-			return nil, err
-		}
-		if bytes.Equal(current, doc) {
+		if bytes.Equal(currentSchema, doc) {
 			plan.Files = append(plan.Files, File{Path: SchemaFile, Action: Skip, Reason: "already up to date"})
 		} else {
 			plan.Files = append(plan.Files, File{Path: SchemaFile, Action: Update, Content: doc})
@@ -305,15 +308,15 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 	return plan, nil
 }
 
-// SchemaIsStrict reports whether the chart's existing schema closes its top
-// level, so that regenerating it preserves the choice the author made. A chart
-// with no schema, or one that cannot be parsed, is reported as not strict —
-// the permissive answer, which is the safe one to guess.
-func SchemaIsStrict(c *chart.Chart) bool {
-	raw, err := c.Schema()
-	if err != nil {
-		return false
-	}
+// SchemaIsStrictBytes reports whether a schema document closes its top level,
+// so that regenerating it preserves the choice the author made.
+//
+// It takes bytes rather than a chart because the caller has to read the file
+// anyway to compare against it, and reading it twice invites the two reads to
+// disagree. Absent or unparseable input is reported as not strict — the
+// permissive guess, which is the safe one — but an unreadable file is a real
+// error and belongs to whoever did the read, not here.
+func SchemaIsStrictBytes(raw []byte) bool {
 	var doc struct {
 		AdditionalProperties *bool `json:"additionalProperties"`
 	}

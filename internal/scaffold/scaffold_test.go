@@ -365,16 +365,46 @@ func TestPlanNewSchemaCoversEveryValuesKey(t *testing.T) {
 	}
 }
 
+// isStrict reads a chart's schema and reports whether it closes the top level.
+func isStrict(t *testing.T, c *chart.Chart) bool {
+	t.Helper()
+	raw, err := c.Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return SchemaIsStrictBytes(raw)
+}
+
 func TestPlanNewSchemaStrictClosesTheTopLevel(t *testing.T) {
-	c := newSchemaChart(t, "web", true)
-	if !SchemaIsStrict(c) {
+	if !isStrict(t, newSchemaChart(t, "web", true)) {
 		t.Error("--schema-strict did not close the top level")
 	}
-	if !newSchemaChart(t, "web", false).HasSchema() {
+	plain := newSchemaChart(t, "web", false)
+	if !plain.HasSchema() {
 		t.Error("--schema alone wrote no schema")
 	}
-	if SchemaIsStrict(newSchemaChart(t, "web", false)) {
+	if isStrict(t, plain) {
 		t.Error("a plain --schema chart reports as strict")
+	}
+}
+
+func TestSchemaIsStrictBytes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		raw  string
+		want bool
+	}{
+		"closed":      {`{"additionalProperties": false}`, true},
+		"open":        {`{"additionalProperties": true}`, false},
+		"unset":       {`{"type": "object"}`, false},
+		"absent file": {``, false},
+		"unparseable": {`{not json`, false},
+		"wrong type":  {`{"additionalProperties": {"type": "string"}}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := SchemaIsStrictBytes([]byte(tc.raw)); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -428,7 +458,7 @@ func TestPlanAddKeepsTheSchemaStrict(t *testing.T) {
 	if err := Apply(plan); err != nil {
 		t.Fatal(err)
 	}
-	if !SchemaIsStrict(c) {
+	if !isStrict(t, c) {
 		t.Error("regenerating dropped additionalProperties: false")
 	}
 }
@@ -492,18 +522,46 @@ func TestCanonicalOrderPutsTheWorkloadFirst(t *testing.T) {
 	if _, ok := doc.Properties.Persistence.Properties["mountPath"]; !ok {
 		t.Error("persistence came from the PVC, but the StatefulSet contributes it to values.yaml first")
 	}
+
+	// The schema order is computed independently of the values merge, so the
+	// claim that the two agree has to be checked on both sides, not inferred.
+	vals, err := c.Values()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(vals), "mountPath:") {
+		t.Error("values.yaml took persistence from the PVC while the schema took it from the StatefulSet")
+	}
+	if strings.Contains(string(vals), "existingClaim:") {
+		t.Error("values.yaml took persistence from the PVC")
+	}
 }
 
 func TestSchemaIsStrictHandlesAMissingOrBrokenFile(t *testing.T) {
 	c := newChart(t, "web")
-	if SchemaIsStrict(c) {
+	if isStrict(t, c) {
 		t.Error("a chart with no schema reported as strict")
 	}
 	if err := os.WriteFile(c.SchemaPath(), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if SchemaIsStrict(c) {
+	if isStrict(t, c) {
 		t.Error("an unparseable schema reported as strict; the permissive guess is the safe one")
+	}
+}
+
+// An unreadable schema is a real error, not a reason to guess permissive and
+// silently rewrite the author's strict file.
+func TestPlanAddSurfacesAnUnreadableSchema(t *testing.T) {
+	c := newSchemaChart(t, "web", true)
+	if err := os.Remove(c.SchemaPath()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(c.SchemaPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlanAdd(c, []string{"servicemonitor"}, false); err == nil {
+		t.Error("PlanAdd swallowed an unreadable values.schema.json")
 	}
 }
 

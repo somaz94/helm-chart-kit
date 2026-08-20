@@ -123,17 +123,70 @@ func TestBuildEmpty(t *testing.T) {
 
 func TestBuildRejectsBadFragments(t *testing.T) {
 	for name, body := range map[string]string{
-		"not json":      `{"broken`,
-		"not an object": `["service"]`,
-		"bad value":     `{"service": }`,
+		"not json":         `{"broken`,
+		"not an object":    `["service"]`,
+		"bad value":        `{"service": }`,
+		"two objects":      `{"a": {"type": "string"}} {"b": {"type": "string"}}`,
+		"trailing garbage": `{"a": {"type": "string"}} nonsense`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, _, err := Build([]Fragment{{Resource: "x", Body: body}}, Options{}); err == nil {
-				t.Error("want an error")
-			} else if !strings.Contains(err.Error(), "x") {
+			// The resource name has to be one no error string would contain by
+			// accident: a bare "x" matched "unexpected EOF", so this passed
+			// even with Build's fragment-naming wrapper deleted.
+			_, _, err := Build([]Fragment{{Resource: "servicemonitor", Body: body}}, Options{})
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			if !strings.Contains(err.Error(), `fragment "servicemonitor"`) {
 				t.Errorf("error does not name the fragment: %v", err)
 			}
 		})
+	}
+}
+
+// A second object after the first used to be dropped silently, taking every
+// key it declared with it — the one input class this package got wrong rather
+// than loud.
+func TestBuildRejectsContentAfterTheObject(t *testing.T) {
+	_, res, err := Build([]Fragment{{
+		Resource: "svc",
+		Body:     `{"a": {"type": "string"}} {"b": {"type": "string"}}`,
+	}}, Options{})
+	if err == nil {
+		t.Fatalf("want an error; instead the build kept %v and dropped the rest", res.Added)
+	}
+}
+
+// Nothing else pins emit's layout: every other assertion here round-trips
+// through json.Unmarshal, so the json.Indent prefix could change and leave the
+// whole suite green while every generated values.schema.json came out
+// misaligned.
+func TestEmitLayout(t *testing.T) {
+	out, _, err := Build([]Fragment{{
+		Resource: "svc",
+		Body:     `{"service": {"type": "object", "properties": {"port": {"type": "integer"}}}}`,
+	}}, Options{Title: "demo values"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "demo values",
+  "type": "object",
+  "properties": {
+    "service": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}
+`
+	if string(out) != want {
+		t.Errorf("layout drifted\n--- got ---\n%s\n--- want ---\n%s", out, want)
 	}
 }
 

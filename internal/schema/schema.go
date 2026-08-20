@@ -18,7 +18,9 @@ package schema
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 )
 
 // draft is the JSON Schema dialect. draft-07 rather than 2020-12: Helm has
@@ -113,8 +115,15 @@ func parseOrdered(src []byte) ([]property, error) {
 		}
 		out = append(out, property{key: key, raw: raw})
 	}
-	if _, err := dec.Token(); err != nil {
+	if _, err := dec.Token(); err != nil { // the closing brace
 		return nil, fmt.Errorf("parse schema fragment: %w", err)
+	}
+	// A fragment is exactly one object. Without this the decoder simply stops
+	// at the first closing brace, so a second object — or a stray copy-paste
+	// after the first — loses every key it declares with no error at all,
+	// which is the one way this package can be wrong rather than loud.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("schema fragment has content after the object")
 	}
 	return out, nil
 }
@@ -146,8 +155,11 @@ func emit(props []property, opts Options) []byte {
 		// The value sits two levels in, so its continuation lines carry four
 		// spaces of prefix on top of the usual two-space step.
 		if err := json.Indent(&indented, p.raw, "    ", "  "); err != nil {
-			// parseOrdered already decoded it, so this cannot fail; fall
-			// back to the compact form rather than dropping the property.
+			// parseOrdered already ran the scanner over this value, so the
+			// only error Indent has — a syntax error — is unreachable. Write
+			// the fragment's own bytes rather than dropping the property:
+			// still valid JSON, just carrying the fragment file's indentation
+			// instead of this document's.
 			b.Write(p.raw)
 			continue
 		}

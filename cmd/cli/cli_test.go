@@ -294,6 +294,66 @@ func TestSchemaCheckFollowsTheExistingStrictness(t *testing.T) {
 	}
 }
 
+// The command a --check failure prints has to fix that failure. It used to
+// omit --strict, so following the advice rebuilt the file exactly as it was
+// and a CI job pinned to --check --strict stayed red forever.
+func TestSchemaCheckHintConverges(t *testing.T) {
+	dir := schemaChart(t) // permissive on disk
+
+	_, err := run(t, "schema", "--chart", dir, "--check", "--strict")
+	if err == nil {
+		t.Fatal("want an error comparing a permissive file against a strict build")
+	}
+	hint := extractHint(t, err.Error())
+
+	// Run exactly what was printed, then the same check has to pass.
+	args := append(strings.Fields(hint)[1:], "--chart", dir) // drop the leading "hck"
+	mustRun(t, args...)
+	mustRun(t, "schema", "--chart", dir, "--check", "--strict")
+}
+
+func TestSchemaCheckHintConvergesTheOtherWay(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--schema-strict")
+	dir := filepath.Join(parent, "demo")
+
+	_, err := run(t, "schema", "--chart", dir, "--check", "--strict=false")
+	if err == nil {
+		t.Fatal("want an error comparing a strict file against a permissive build")
+	}
+	args := append(strings.Fields(extractHint(t, err.Error()))[1:], "--chart", dir)
+	mustRun(t, args...)
+	mustRun(t, "schema", "--chart", dir, "--check", "--strict=false")
+}
+
+// extractHint pulls the "run: <command>" tail out of an error message.
+func extractHint(t *testing.T, msg string) string {
+	t.Helper()
+	_, hint, ok := strings.Cut(msg, "run: ")
+	if !ok {
+		t.Fatalf("error carries no remediation: %s", msg)
+	}
+	return strings.TrimSpace(hint)
+}
+
+// An unreadable schema must not be mistaken for a permissive one and rewritten.
+func TestSchemaWriteSurfacesAnUnreadableFile(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--schema-strict")
+	dir := filepath.Join(parent, "demo")
+	path := filepath.Join(dir, "values.schema.json")
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "schema", "--chart", dir, "--write"); err == nil {
+		t.Error("--write silently rebuilt an unreadable schema instead of reporting it")
+	}
+}
+
 func TestSchemaStrictClosesTheTopLevel(t *testing.T) {
 	dir := schemaChart(t)
 	out := mustRun(t, "schema", "--chart", dir, "--strict")
