@@ -246,6 +246,7 @@ hck check [flags]
 | `-f, --values` | — | helm에 넘길 values 파일. 반복 지정 가능 |
 | `--platform` | — | 함께 적용할 플랫폼 오버레이. 쉼표 구분 |
 | `--env` | — | 함께 적용할 환경 오버레이. 쉼표 구분. `--platform` 뒤에 적용되므로 이쪽이 이깁니다 |
+| `--all` | `false` | 차트가 가진 오버레이의 모든 조합과, 아무것도 없는 경우까지 검사 |
 | `--strict` | `false` | 경고도 실패로 취급. info 지적은 실패시키지 않음 |
 | `--off` | — | 이번 실행에서만 끌 규칙, 쉼표로 구분. `"*"`는 끌 수 있는 규칙을 전부 끔 |
 | `--print` | `false` | 렌더된 매니페스트를 출력 |
@@ -256,6 +257,7 @@ hck check [flags]
 hck check
 hck check --chart ./charts/payments-api
 hck check -f values/prod.yaml --strict
+hck check --all                # 설치될 수 있는 모든 조합
 hck check --no-render          # helm 없이도 동작
 hck check --format json        # 같은 실행, 기계가 읽는 형태
 ```
@@ -277,6 +279,56 @@ hck check --format json        # 같은 실행, 기계가 읽는 형태
 마지막 것이 있는 이유는, 차트에 필요한 것 중에는 누구의 잘못도 아닌 게 있기 때문입니다. `hck new --platform aws`는 `persistence.storageClass: gp3`를 씁니다. EKS에서 요청하기에 옳은 클래스이면서, 동시에 EKS가 만들어주지 않는 클래스입니다. 차트도 맞고 조언도 맞는데, 그걸 향한 `PersistentVolumeClaim`은 누군가 그 클래스를 만들어줄 때까지 Pending에 머뭅니다. `HCK040`이 이걸 보고합니다.
 
 이걸 경고로 보고하면 hck가 직접 만든 차트가 hck 자신의 `--strict`에서 실패하게 됩니다. 반대로 아무 말도 하지 않으면, 읽는 사람은 영영 스케줄되지 않는 파드를 보고서야 알게 됩니다. 그래서 보고는 하되 실패시키지는 않습니다. 클래스를 만드는 게 자기 일이라고 보는 차트는 `HCK040: warn`으로 올리면 되고, 그때부터는 `--strict`가 실제로 막아섭니다.
+
+<br/>
+
+### 차트가 설치될 수 있는 모든 조합
+
+오버레이를 든 차트는 그중 한 조합으로 설치됩니다. `hck check`는 정확히 하나만 렌더하는데, 어느 것을 렌더할지는 플래그가 정합니다. 그래서 플래그를 주지 않으면 아무도 설치하지 않는 조합을 렌더하게 됩니다.
+
+```console
+$ ls values-*.yaml
+values-aws.yaml  values-dev.yaml  values-gcp.yaml  values-prod.yaml
+
+$ hck check --strict          # passes, and applied none of the four
+```
+
+`--all`은 대신 모든 조합을 렌더합니다.
+
+```console
+$ hck check --all --strict
+check payments-api  9 combination(s)
+
+  ok    base
+  ok    dev
+  FAIL  prod            1 warning(s)
+          warn  HCK036  PodDisruptionBudget/payments-api
+                maxUnavailable is 0, so no voluntary disruption is ever allowed: ...
+  ok    aws
+  ok    aws + dev
+  FAIL  aws + prod      1 warning(s)
+          ...
+  ok    gcp
+  ok    gcp + dev
+  FAIL  gcp + prod      1 warning(s)
+          ...
+
+  9 combination(s), 6 ok, 3 failed
+```
+
+조합의 집합은 두 축의 곱이고, 각 축은 차트가 가진 것과 아무것도 없음을 함께 내놓습니다. 두 축은 직교하므로 — 차트는 어딘가에 어떤 크기로 설치됩니다 — 배제되는 짝이 없습니다. 그래서 두 축에 걸친 오버레이 4개는 조합 9개가 되고, hck 자신의 오버레이 7개는 20개가 됩니다. 한 축에서 둘을 고르는 일은 없습니다. 차트는 한 플랫폼에 한 크기로 설치되므로 `aws + gcp`는 검사할 대상이 아닙니다.
+
+오버레이가 없는 차트는 조합이 하나이고, 그건 `hck check`가 지금까지 늘 돌리던 바로 그 실행입니다. `--all`은 기존 동작의 상위집합이지, 오버레이를 쓰지도 않는 차트에 다른 질문을 던지는 게 아닙니다.
+
+조합 하나에 대한 판정은 단일 실행이 내리는 판정과 같습니다. 그래서 `--all`과 `--platform`/`--env`를 손으로 돌린 루프는 서로 어긋날 수 없습니다. 하나가 실패해도 멈추지 않습니다 — 알고 싶은 것은 어느 조합이 깨졌는가이기 때문입니다.
+
+함께 쓸 수 없는 플래그가 넷 있습니다. 각각 결과가 검사하지 않은 것을 주장하게 만들기 때문입니다.
+
+| `--all`과 함께 | 이유 |
+|---|---|
+| `--platform`, `--env` | 같은 질문을 조합 하나에 대해 답합니다. 둘 다 적는 건 답이 둘인 요청입니다 |
+| `--print` | 렌더된 차트 하나를 출력합니다. 읽고 싶은 조합을 지목하세요 |
+| `--no-render` | 오버레이는 `-f` 인자라 렌더 없이는 아무것도 바꾸지 않습니다. 모든 조합이 같은 차트를 보고하게 됩니다 |
 
 <br/>
 
@@ -338,7 +390,26 @@ hck check --off '*'
 }
 ```
 
-`ok`는 `--strict`를 포함한 종료 코드와 일치하므로, CI는 결과를 grep하는 대신 그대로 읽으면 됩니다. `infos`는 `warnings`와 따로 세며 절대 합쳐지지 않습니다. 둘을 더해서 쓰는 쪽은 `--strict`가 일부러 통과시키는 바로 그것 때문에 차트를 실패시키게 됩니다. 여기서 `--print`는 효과가 없습니다. JSON 문자열 안에 든 매니페스트는 읽기에도 파싱하기에도 맞지 않습니다.
+`ok`는 `--strict`를 포함한 종료 코드와 일치하므로, CI는 결과를 grep하는 대신 그대로 읽으면 됩니다. `infos`는 `warnings`와 따로 세며 절대 합쳐지지 않습니다. 둘을 더해서 쓰는 쪽은 `--strict`가 일부러 통과시키는 바로 그것 때문에 차트를 실패시키게 됩니다.
+
+`--all`은 조합마다 항목 하나씩, 두 번째 형태를 씁니다.
+
+```json
+{
+  "chart": "payments-api",
+  "combinations": [
+    {"chart": "payments-api", "findings": [], "errors": 0, "warnings": 0, "infos": 0, "ok": true},
+    {"chart": "payments-api", "overlays": ["aws"], "findings": [], "errors": 0, "warnings": 0, "infos": 1, "ok": true}
+  ],
+  "errors": 0,
+  "warnings": 0,
+  "infos": 1,
+  "failed": 0,
+  "ok": true
+}
+```
+
+각 항목은 그 자체로 완전한 단일 실행 문서입니다. 하나만 떼어내도 이미 읽을 줄 아는 형태가 나옵니다. `overlays`가 없으면 base 조합인데, 이는 오버레이를 지목하지 않은 단일 실행에서 그 키가 빠지는 것과 같습니다. 최상위 집계는 단일 실행과 같은 이름을 그대로 쓰므로 `.ok`와 `.errors`는 두 형태 모두에서 동작하고, `combinations`와 `failed`만 새로 생긴 것입니다. `failed`는 지적이 아니라 조합을 셉니다. 한 조합이 지적을 여럿 담을 수 있고, `--strict`에서는 error가 하나도 없이 경고만으로도 조합이 실패하기 때문입니다. 여기서 `--print`는 효과가 없습니다. JSON 문자열 안에 든 매니페스트는 읽기에도 파싱하기에도 맞지 않습니다.
 
 <br/>
 

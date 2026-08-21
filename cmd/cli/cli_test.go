@@ -2212,3 +2212,157 @@ func TestTheStorageClassNoteIsQuietWhereThePlatformShipsTheClass(t *testing.T) {
 		})
 	}
 }
+
+// The claim --all exists for: a chart that carries overlays is installed as
+// one combination of them, and a plain check renders none of them. Here the
+// budget is wedged in values-prod.yaml only, so the chart passes --strict on
+// its own values and is broken under the overlay it ships to production with.
+func TestCheckAllFindsWhatASingleCheckCannot(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "ov", "-d", parent, "--preset", "web", "--platform", "aws")
+	dir := filepath.Join(parent, "ov")
+	mustRun(t, "env", "add", "prod", "--chart", dir)
+	mustRun(t, "env", "add", "dev", "--chart", dir)
+
+	prod := filepath.Join(dir, "values-prod.yaml")
+	raw, err := os.ReadFile(prod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wedged := strings.Replace(string(raw), "maxUnavailable: 1", "maxUnavailable: 0", 1)
+	if wedged == string(raw) {
+		t.Fatal("the prod overlay no longer sets maxUnavailable; this test is not testing what it says")
+	}
+	writeFile(t, prod, wedged)
+
+	// The gap itself: the chart passes the check hck has always run.
+	if _, err := run(t, "check", "--chart", dir, "--strict"); err != nil {
+		t.Fatalf("the base combination was supposed to be clean: %v", err)
+	}
+
+	out, err := run(t, "check", "--chart", dir, "--all", "--strict")
+	if err == nil {
+		t.Fatalf("--all passed a chart that is broken under prod:\n%s", out)
+	}
+	if !strings.Contains(out, "HCK036") {
+		t.Errorf("the finding is not in the report:\n%s", out)
+	}
+	// Named per combination, so the reader knows which install is affected
+	// rather than only that something is.
+	for _, want := range []string{"prod", "aws + prod", "6 combination(s), 4 ok, 2 failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report does not mention %q:\n%s", want, out)
+		}
+	}
+	// And the four that do not carry the prod overlay stay clean.
+	if strings.Contains(out, "FAIL  base") || strings.Contains(out, "FAIL  dev") {
+		t.Errorf("a combination without the prod overlay failed:\n%s", out)
+	}
+}
+
+// The same run as a document. The top-level counts keep the names a single run
+// uses, so a CI step reading .ok or .errors works against either shape.
+func TestCheckAllJSON(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "ov", "-d", parent, "--preset", "stateful", "--platform", "aws")
+	dir := filepath.Join(parent, "ov")
+	mustRun(t, "env", "add", "prod", "--chart", dir)
+
+	out := mustRun(t, "check", "--chart", dir, "--all", "--strict", "--format", "json")
+	var doc struct {
+		Chart        string `json:"chart"`
+		Combinations []struct {
+			Overlays []string `json:"overlays"`
+			Infos    int      `json:"infos"`
+			OK       bool     `json:"ok"`
+		} `json:"combinations"`
+		Errors   int  `json:"errors"`
+		Warnings int  `json:"warnings"`
+		Infos    int  `json:"infos"`
+		Failed   int  `json:"failed"`
+		OK       bool `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	// base, prod, aws, aws + prod.
+	if len(doc.Combinations) != 4 {
+		t.Fatalf("got %d combinations, want 4: %+v", len(doc.Combinations), doc.Combinations)
+	}
+	if !doc.OK || doc.Failed != 0 || doc.Errors != 0 || doc.Warnings != 0 {
+		t.Errorf("a clean chart did not come out clean: %+v", doc)
+	}
+	// The aws overlay asks for gp3, so exactly the two combinations carrying
+	// it report the prerequisite — and the total is their sum, not a repeat.
+	withAWS := 0
+	for _, c := range doc.Combinations {
+		if slices.Contains(c.Overlays, "aws") {
+			withAWS++
+			if c.Infos != 1 {
+				t.Errorf("%v: infos = %d, want 1", c.Overlays, c.Infos)
+			}
+		} else if c.Infos != 0 {
+			t.Errorf("%v: infos = %d, want 0", c.Overlays, c.Infos)
+		}
+	}
+	if withAWS != 2 || doc.Infos != 2 {
+		t.Errorf("aws combinations = %d, total infos = %d, want 2 and 2", withAWS, doc.Infos)
+	}
+}
+
+// Each refusal names the contradiction rather than whatever failed first. The
+// --platform one is the reason these are checked before the overlay lookup:
+// it used to report a missing values-aws.yaml, which was true and not the
+// problem.
+func TestCheckAllRefusesFlagsThatContradictIt(t *testing.T) {
+	parent := t.TempDir()
+	mustRun(t, "new", "g", "-d", parent, "--preset", "web")
+	dir := filepath.Join(parent, "g")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"--platform", []string{"--all", "--platform", "aws"}, "drop --platform and --env"},
+		{"--env", []string{"--all", "--env", "prod"}, "drop --platform and --env"},
+		{"--print", []string{"--all", "--print"}, "--print writes one rendered chart"},
+		{"--no-render", []string{"--all", "--no-render"}, "--all needs the render"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := run(t, append([]string{"check", "--chart", dir}, tc.args...)...)
+			if err == nil {
+				t.Fatalf("--all with %s was accepted:\n%s", tc.name, out)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A chart that never asked for an overlay gets exactly the run it always got,
+// so --all is a superset of the old behaviour rather than a different
+// question asked of a chart that did not opt in.
+func TestCheckAllOnAChartWithNoOverlays(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "plain", "-d", parent, "--preset", "minimal")
+	dir := filepath.Join(parent, "plain")
+
+	out := mustRun(t, "check", "--chart", dir, "--all", "--strict")
+	if !strings.Contains(out, "1 combination(s), 1 ok, 0 failed") {
+		t.Errorf("want exactly one combination:\n%s", out)
+	}
+	if !strings.Contains(out, "base") {
+		t.Errorf("the one combination is not named:\n%s", out)
+	}
+}

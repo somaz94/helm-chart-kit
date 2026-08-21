@@ -326,6 +326,30 @@ helm install payments-api . -f values-aws.yaml
 | `azure` | Workload Identity(다들 잊는 파드 라벨 포함), Application Gateway, managed-csi, Key Vault |
 | `onprem` | ingress-nginx, MetalLB, 직접 제공하는 스토리지 클래스, Vault, 사설 레지스트리 pull secret |
 
+**`hck check --all`은 차트가 설치될 수 있는 모든 조합을 렌더합니다.** 오버레이를 든 차트는 그중 한 조합으로 설치되는데, 평범한 검사는 하나도 적용하지 않습니다. 그래서 `values-prod.yaml`에서만 깨진 차트가 통과하고, 설치 시점에 가서야 드러납니다.
+
+```bash
+hck check --all --strict
+```
+
+```console
+check payments-api  6 combination(s)
+
+  ok    base
+  ok    dev
+  FAIL  prod        1 warning(s)
+          warn  HCK036  PodDisruptionBudget/payments-api
+                maxUnavailable is 0, so no voluntary disruption is ever allowed: ...
+  ok    aws
+  ok    aws + dev
+  FAIL  aws + prod  1 warning(s)
+          ...
+
+  6 combination(s), 4 ok, 2 failed
+```
+
+조합은 차트가 가진 플랫폼 오버레이 각각, 환경 오버레이 각각, 그 모든 쌍, 그리고 아무것도 없는 경우입니다. 오버레이가 없는 차트는 조합이 하나이고, 그건 `hck check`가 지금까지 늘 돌리던 바로 그것입니다. `--format json`은 이를 `combinations`로 내놓으며, `ok`·`errors`·`warnings`·`infos`는 단일 실행과 같은 이름을 그대로 씁니다.
+
 <br/>
 
 ## 환경 오버레이

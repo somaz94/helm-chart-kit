@@ -246,6 +246,7 @@ hck check [flags]
 | `-f, --values` | — | Values files passed to helm; repeatable |
 | `--platform` | — | Also apply these platform overlays, comma-separated |
 | `--env` | — | Also apply these environment overlays, comma-separated. Applied after `--platform`, so it wins |
+| `--all` | `false` | Check every combination of the overlays the chart carries, plus none of them |
 | `--strict` | `false` | Fail on warnings as well as errors. Info findings never fail |
 | `--off` | — | Rules to turn off for this run, comma-separated; `"*"` turns off every rule that can be |
 | `--print` | `false` | Print the rendered manifests |
@@ -256,6 +257,7 @@ hck check [flags]
 hck check
 hck check --chart ./charts/payments-api
 hck check -f values/prod.yaml --strict
+hck check --all                # every combination it could be installed as
 hck check --no-render          # no helm needed
 hck check --format json        # same run, machine-readable
 ```
@@ -277,6 +279,56 @@ When no `-f` is given and the chart has `ci/install-values.yaml`, that file is u
 The last one exists because some things a chart needs are nobody's mistake. `hck new --platform aws` writes `persistence.storageClass: gp3`, which is the right class to ask for on EKS and a class EKS does not create — so the chart is correct, the advice is correct, and a `PersistentVolumeClaim` against it stays Pending until somebody makes one. `HCK040` reports that.
 
 Reporting it as a warning would mean a chart hck itself generated fails hck's own `--strict`; saying nothing would leave the reader to find out from a pod that never schedules. So it is reported and it does not fail. A chart that treats the class as its own job to create raises it — `HCK040: warn` — and then `--strict` does stop it.
+
+<br/>
+
+### Every combination the chart could be installed as
+
+A chart that carries overlays is installed as one combination of them. `hck check` renders exactly one — whichever the flags named — so with no flags it renders the combination nobody installs:
+
+```console
+$ ls values-*.yaml
+values-aws.yaml  values-dev.yaml  values-gcp.yaml  values-prod.yaml
+
+$ hck check --strict          # passes, and applied none of the four
+```
+
+`--all` renders every combination instead:
+
+```console
+$ hck check --all --strict
+check payments-api  9 combination(s)
+
+  ok    base
+  ok    dev
+  FAIL  prod            1 warning(s)
+          warn  HCK036  PodDisruptionBudget/payments-api
+                maxUnavailable is 0, so no voluntary disruption is ever allowed: ...
+  ok    aws
+  ok    aws + dev
+  FAIL  aws + prod      1 warning(s)
+          ...
+  ok    gcp
+  ok    gcp + dev
+  FAIL  gcp + prod      1 warning(s)
+          ...
+
+  9 combination(s), 6 ok, 3 failed
+```
+
+The set is a product of the two axes, each offering what the chart carries and none of it. They are orthogonal — a chart is installed somewhere and at some size — and no pairing is excluded, so four overlays across two axes give nine combinations and hck's own seven give twenty. Never two from one axis: a chart is installed on one platform at one size, so `aws + gcp` is not something to check.
+
+A chart with no overlays is one combination, which is exactly the run `hck check` has always made. `--all` is a superset of the old behaviour, never a different question asked of a chart that never opted in.
+
+The verdict per combination is the same one a single run reaches, so `--all` and a hand-written loop over `--platform`/`--env` cannot disagree. It keeps going after a failure — the point is *which* combinations are broken.
+
+Four flags are refused with it, because each would make the result claim something it did not check:
+
+| With `--all` | Why |
+|---|---|
+| `--platform`, `--env` | They answer the same question over one combination; naming both is a request with two answers |
+| `--print` | It writes one rendered chart; name the combination you want to read |
+| `--no-render` | An overlay is a `-f` argument and changes nothing without the render, so every combination would report the same chart |
 
 <br/>
 
@@ -338,7 +390,26 @@ hck check --off '*'
 }
 ```
 
-`ok` matches the exit status, `--strict` included, so a CI step can read the verdict instead of grepping for it. `infos` is counted apart from `warnings` and never folded into it: a consumer summing the two would fail a chart over exactly what `--strict` deliberately lets pass. `--print` has no effect here — a manifest stream inside a JSON string is for neither reading nor parsing.
+`ok` matches the exit status, `--strict` included, so a CI step can read the verdict instead of grepping for it. `infos` is counted apart from `warnings` and never folded into it: a consumer summing the two would fail a chart over exactly what `--strict` deliberately lets pass.
+
+`--all` writes a second shape, one entry per combination:
+
+```json
+{
+  "chart": "payments-api",
+  "combinations": [
+    {"chart": "payments-api", "findings": [], "errors": 0, "warnings": 0, "infos": 0, "ok": true},
+    {"chart": "payments-api", "overlays": ["aws"], "findings": [], "errors": 0, "warnings": 0, "infos": 1, "ok": true}
+  ],
+  "errors": 0,
+  "warnings": 0,
+  "infos": 1,
+  "failed": 0,
+  "ok": true
+}
+```
+
+Each entry is a complete single-run document, so slicing one out gives something a consumer already knows how to read — and an absent `overlays` is the base combination, the same way it is absent from a single run that named no overlay. The top-level counts keep the names a single run uses, so `.ok` and `.errors` work against either shape; only `combinations` and `failed` are new. `failed` counts combinations rather than findings: one combination can carry several, and under `--strict` a combination fails on warnings with no errors at all. `--print` has no effect here — a manifest stream inside a JSON string is for neither reading nor parsing.
 
 <br/>
 

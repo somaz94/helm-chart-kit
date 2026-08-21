@@ -354,6 +354,30 @@ configuration right up until someone installs with it.
 | `azure` | Workload Identity (including the pod label everyone forgets), Application Gateway, managed-csi, Key Vault |
 | `onprem` | ingress-nginx, MetalLB, a storage class you provide, Vault, private registry pull secrets |
 
+**`hck check --all` renders every combination the chart could be installed as.** A chart that carries overlays is installed as one combination of them, and a plain check applies none — so a chart broken only under `values-prod.yaml` passes, and finds out at install time:
+
+```bash
+hck check --all --strict
+```
+
+```console
+check payments-api  6 combination(s)
+
+  ok    base
+  ok    dev
+  FAIL  prod        1 warning(s)
+          warn  HCK036  PodDisruptionBudget/payments-api
+                maxUnavailable is 0, so no voluntary disruption is ever allowed: ...
+  ok    aws
+  ok    aws + dev
+  FAIL  aws + prod  1 warning(s)
+          ...
+
+  6 combination(s), 4 ok, 2 failed
+```
+
+The set is each platform overlay the chart has, each environment overlay, every pair, and none of them — a chart with no overlays is one combination, which is exactly what `hck check` has always run. `--format json` reports it as `combinations`, keeping the same `ok`, `errors`, `warnings` and `infos` names a single run uses.
+
 <br/>
 
 ## Environment overlays

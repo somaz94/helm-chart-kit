@@ -26,6 +26,7 @@ func newCheckCmd() *cobra.Command {
 		noRender    bool
 		format      string
 		off         []string
+		all         bool
 	}
 
 	cmd := &cobra.Command{
@@ -59,6 +60,11 @@ defect — something true about the chart that is nobody's mistake, such as a
 storage class the platform does not ship — so it is reported and --strict does
 not fail on it. Raise one to warn when it is your job to satisfy.
 
+A chart that carries overlays is installed as one combination of them, and a
+plain check renders none of them — which is the combination nobody installs.
+--all renders every combination the chart could be installed as: each platform
+overlay it has, each environment overlay, every pair, and none.
+
 Run "hck list rules" for the rule IDs.`,
 		Args: cobra.NoArgs,
 		Example: `  hck check
@@ -67,6 +73,8 @@ Run "hck list rules" for the rule IDs.`,
   hck check --platform aws
   hck check --platform aws,gcp --strict
   hck check --platform aws --env prod --strict
+  hck check --all
+  hck check --all --strict
   hck check --format json
   hck check --off HCK025,HCK011
   hck check --off '*'
@@ -79,6 +87,28 @@ Run "hck list rules" for the rule IDs.`,
 			c, err := chart.Load(dir)
 			if err != nil {
 				return err
+			}
+
+			// Flags that contradict each other are settled before anything is
+			// looked up, so the error names the contradiction. Checked after
+			// --platform below and "hck check --all --platform aws" reported a
+			// missing values-aws.yaml — true, and not what was wrong.
+			if opts.all {
+				switch {
+				case len(opts.platforms) > 0 || len(opts.envs) > 0:
+					// --all answers the same question --platform and --env do,
+					// over every combination instead of one, so naming both is
+					// a request with two answers rather than a narrower --all.
+					return errors.New("--all already covers every overlay this chart carries; drop --platform and --env")
+				case opts.printOutput:
+					return errors.New("--print writes one rendered chart; name the combination with --platform and --env")
+				case opts.noRender:
+					// An overlay is a -f argument and changes nothing but the
+					// render, so every combination would do identical work and
+					// the report would claim coverage of combinations nobody
+					// rendered — a clean matrix that proved one chart.
+					return errors.New("--all needs the render: an overlay changes nothing without it, so every combination would report the same chart")
+				}
 			}
 
 			// An overlay that does not render is worse than no overlay: it
@@ -114,6 +144,15 @@ Run "hck list rules" for the rule IDs.`,
 				return err
 			}
 
+			if opts.all {
+				return runEveryCombination(cmd.OutOrStdout(), c, cfg, matrixOptions{
+					valuesFiles: opts.valuesFiles,
+					strict:      opts.strict,
+					noRender:    opts.noRender,
+					format:      opts.format,
+				})
+			}
+
 			rep, err := check.Run(c, check.Options{
 				Config:       cfg,
 				ValuesFiles:  opts.valuesFiles,
@@ -145,14 +184,7 @@ Run "hck list rules" for the rule IDs.`,
 			}
 			fprintf(out, "%s %s\n\n", p.bold("check"), label)
 			for _, f := range rep.Findings {
-				tag := p.yellow("warn ")
-				switch f.Severity {
-				case check.Error:
-					tag = p.red("error")
-				case check.Info:
-					tag = p.cyan("info ")
-				}
-				fprintf(out, "  %s %s  %s\n", tag, p.dim(f.Rule), f.Where)
+				fprintf(out, "  %s %s  %s\n", severityTag(p, f.Severity), p.dim(f.Rule), f.Where)
 				fprintf(out, "        %s\n", f.Message)
 			}
 
@@ -198,6 +230,7 @@ Run "hck list rules" for the rule IDs.`,
 	cmd.Flags().BoolVar(&opts.noRender, "no-render", false, "skip helm; run only the rules that read the chart directory")
 	cmd.Flags().StringVar(&opts.format, "format", formatText, "output format: "+formatText+" or "+formatJSON)
 	cmd.Flags().StringSliceVar(&opts.off, "off", nil, `rules to turn off for this run; "*" turns off every rule that can be`)
+	cmd.Flags().BoolVar(&opts.all, "all", false, "check every combination of the overlays this chart carries, plus none of them")
 
 	_ = cmd.RegisterFlagCompletionFunc("off",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
@@ -248,10 +281,13 @@ type jsonFinding struct {
 	Message  string `json:"message"`
 }
 
-// printReportJSON writes the report as JSON and returns the same failure the
-// text path would. The rendered manifests are deliberately absent: --print is
-// for reading, and a manifest stream inside a JSON string is neither.
-func printReportJSON(out io.Writer, chartName string, overlays []string, rep *check.Report, strict bool) error {
+// buildReportJSON is one run as a document. It is separate from printing it
+// because --all needs the same document per combination and encodes them
+// together — one definition, so a field added here reaches both shapes.
+//
+// The rendered manifests are deliberately absent: --print is for reading, and
+// a manifest stream inside a JSON string is neither.
+func buildReportJSON(chartName string, overlays []string, rep *check.Report, strict bool) jsonReport {
 	errs, warns := rep.Errors(), rep.Warns()
 	doc := jsonReport{
 		Chart:    chartName,
@@ -271,15 +307,28 @@ func printReportJSON(out io.Writer, chartName string, overlays []string, rep *ch
 			Message:  f.Message,
 		})
 	}
-	enc := json.NewEncoder(out)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(doc); err != nil {
+	return doc
+}
+
+// printReportJSON writes the report as JSON and returns the same failure the
+// text path would.
+func printReportJSON(out io.Writer, chartName string, overlays []string, rep *check.Report, strict bool) error {
+	doc := buildReportJSON(chartName, overlays, rep, strict)
+	if err := encodeJSON(out, doc); err != nil {
 		return err
 	}
 	if !doc.OK {
 		return fmt.Errorf("check failed")
 	}
 	return nil
+}
+
+// encodeJSON writes one document, indented the way every hck --format json
+// output is.
+func encodeJSON(out io.Writer, doc any) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(doc)
 }
 
 // overlayPaths resolves overlay names on one axis to the files inside a chart,

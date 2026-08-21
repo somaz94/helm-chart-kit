@@ -193,6 +193,16 @@ jobs:
             exit 1
           }
 
+          # --all is a second shape, and it keeps the same top-level names so a
+          # step reading .ok or .errors works against either. Only .combinations
+          # and .failed are new.
+          hck check --chart "$chart" --all --format json \
+            | jq -e 'has("errors") and has("warnings") and has("infos") and has("ok")
+                     and has("combinations") and has("failed")' >/dev/null || {
+            echo "FAIL: hck check --all dropped a field from the JSON report"
+            exit 1
+          }
+
           # sync answers which files were compared and how each came out.
           hck sync --chart "$chart" --format json | jq -e '.ok' >/dev/null || {
             echo "FAIL: a freshly generated chart reported drift"
@@ -587,6 +597,68 @@ jobs:
             exit 1
           }
           echo "PASS: environment overlays"
+
+      # Every step above builds one chart per overlay and checks it with the
+      # flag that names it. A real chart carries several at once and is
+      # installed as one combination of them, which no single check renders —
+      # the loop that covers them was written twice here before "--all"
+      # existed to do it.
+      - name: Every combination a chart could be installed as
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new every --dir "$workdir" --preset web --schema >/dev/null
+          chart="$workdir/every"
+          for p in aws gcp azure onprem; do hck platform add "$p" --chart "$chart" >/dev/null; done
+          for e in dev staging prod; do hck env add "$e" --chart "$chart" >/dev/null; done
+
+          # 4 platforms and none, times 3 environments and none.
+          report=$(hck check --chart "$chart" --all --strict --format json)
+          jq -e '.ok and (.combinations | length) == 20' >/dev/null <<<"$report" || {
+            echo "FAIL: expected 20 clean combinations"
+            jq -r '"\(.combinations|length) combinations, ok=\(.ok), failed=\(.failed)"' <<<"$report"
+            exit 1
+          }
+          # One axis at most once per combination: a chart is installed on one
+          # platform at one size, so "aws + gcp" is not a thing to check.
+          jq -e 'all(.combinations[]; (.overlays // []) | length <= 2)' >/dev/null <<<"$report" || {
+            echo "FAIL: a combination stacked more than two overlays"
+            exit 1
+          }
+          echo "  20 combinations ok"
+
+          # The claim --all exists for. Wedge the budget in the prod overlay
+          # only: the chart still passes the check hck has always run, and is
+          # broken in every combination that ships to production.
+          # Written through a temp file rather than "sed -i": the in-place
+          # flag takes a mandatory suffix on BSD sed and none on GNU, so the
+          # one-liner that works in CI cannot be run on a mac to check it.
+          sed 's/  maxUnavailable: 1/  maxUnavailable: 0/' "$chart/values-prod.yaml" > "$workdir/prod.yaml"
+          mv "$workdir/prod.yaml" "$chart/values-prod.yaml"
+          hck check --chart "$chart" --strict >/dev/null || {
+            echo "FAIL: the base combination was supposed to stay clean"
+            exit 1
+          }
+          set +e
+          report=$(hck check --chart "$chart" --all --strict --format json 2>/dev/null)
+          status=$?
+          set -e
+          [ "$status" -ne 0 ] || {
+            echo "FAIL: --all passed a chart that is broken under prod"
+            exit 1
+          }
+          # Five: one for each platform choice, including none.
+          jq -e '.failed == 5 and (.ok | not)' >/dev/null <<<"$report" || {
+            echo "FAIL: the wrong number of combinations failed"
+            jq -r '.combinations[] | select(.ok | not) | (.overlays // ["base"] | join(" + "))' <<<"$report"
+            exit 1
+          }
+          jq -e 'all(.combinations[]; (((.overlays // []) | index("prod")) != null) == (.ok | not))' >/dev/null <<<"$report" || {
+            echo "FAIL: a combination failed that does not carry the prod overlay"
+            exit 1
+          }
+          echo "PASS: every combination"
 
       # A chart hck just generated is by definition what hck generates, so
       # "hck sync" over one has to be clean. And the guards on remove are the
