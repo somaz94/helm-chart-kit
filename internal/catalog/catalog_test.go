@@ -662,3 +662,52 @@ func TestPlatformOnlyInGroup(t *testing.T) {
 		t.Error("no group has a platform-specific resource; the axis is unexercised")
 	}
 }
+
+// The README lists every preset by name in its comparison table, and that row
+// went stale the moment two presets were added — the resource count beside it
+// has had a test since it was written, and this one did not, which is exactly
+// why it drifted and the count did not.
+func TestTheReadmePresetListIsTrue(t *testing.T) {
+	want := map[string]bool{}
+	for _, ps := range Presets() {
+		want[ps.Name] = true
+	}
+	for _, readme := range []string{"../../README.md", "../../README-ko.md"} {
+		raw, err := os.ReadFile(readme)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := readmePresetRE.FindSubmatch(raw)
+		if m == nil {
+			t.Fatalf("%s no longer lists the presets in the comparison table", readme)
+		}
+		got, err := strconv.Atoi(string(m[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != len(want) {
+			t.Errorf("%s says there are %d presets, the catalog has %d", readme, got, len(want))
+		}
+		// The count agreeing while a name is missing is the more likely
+		// failure, since the count is the part somebody remembers to bump.
+		row := string(m[0])
+		for name := range want {
+			if !strings.Contains(row, "`"+name+"`") {
+				t.Errorf("%s does not name the %q preset", readme, name)
+			}
+		}
+		for _, quoted := range readmeNameRE.FindAllStringSubmatch(row, -1) {
+			if !want[quoted[1]] {
+				t.Errorf("%s names %q, which is not a preset", readme, quoted[1])
+			}
+		}
+	}
+}
+
+// The row opens "| **Presets** | One shape | 13: `web`, ..." in English and
+// "| **preset** | 한 가지 형태 | 13개: `web`, ..." in Korean. The count is the
+// first number after the middle column.
+var readmePresetRE = regexp.MustCompile(`(?m)^\|\s*\*\*(?:Presets|preset)\*\*\s*\|[^|]*\|\s*(\d+)개?:.*\|$`)
+
+// readmeNameRE pulls the backticked names out of that row.
+var readmeNameRE = regexp.MustCompile("`([a-z0-9-]+)`")

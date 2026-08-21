@@ -53,7 +53,7 @@ updated payments-api
 | **추가 시 `values.yaml`** | — | 덧붙임, 기존 바이트 그대로 |
 | **값 설명** | 거의 없음 | 모든 키에 그 키가 있는 이유가 적혀 있음 |
 | **Gateway API, Istio, ServiceMonitor, ExternalSecret** | — | 있음 |
-| **preset** | 한 가지 형태 | 11개: `web`, `gateway`, `mesh`, `worker`, `queue`, `stateful`, `daemon`, `cronjob`, `monitored`, `secure`, `minimal` |
+| **preset** | 한 가지 형태 | 13개: `web`, `gateway`, `mesh`, `worker`, `queue`, `stateful`, `daemon`, `cronjob`, `monitored`, `secure`, `minimal`, `base`, `base-aws` |
 | **플랫폼별 값** | 없음 | `aws`, `gcp`, `azure`, `onprem` 오버레이 |
 | **환경별 값** | 없음 | `dev`, `staging`, `prod` 오버레이 |
 | **커스텀 시작점** | `--starter`, 차트 통째로만 | 리소스 단위, 조합 가능 |
@@ -139,7 +139,7 @@ hck check --off HCK025                     # 이 차트는 CPU limit 을 쓰겠�
 
 # 목적 하나를 통째로 추가 — "@name" 은 그룹의 구성원 전체를 뜻합니다
 hck add @observability                     # servicemonitor, rules, dashboard
-hck list resources                         # 리소스 32개, 목적별로 묶여서 출력
+hck list resources                         # 리소스 36개, 목적별로 묶여서 출력
 
 # 가드를 걸어 하나만 렌더되는 workload 템플릿 두 개: 거부가 아니라 만들고 알려 줍니다.
 # 둘 다 렌더되는 차트는 HCK030 이 보고합니다
