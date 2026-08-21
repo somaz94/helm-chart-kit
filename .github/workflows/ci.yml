@@ -241,7 +241,12 @@ jobs:
             echo "FAIL: the base already carries the IRSA annotation"
             exit 1
           fi
-          hck check --chart "$chart" --platform aws --print | grep -q 'eks.amazonaws.com/role-arn' || {
+          # Captured rather than piped into grep -q, which closes the pipe on
+          # its first match and under pipefail turns a matching assertion into
+          # a failed step. The one above may pipe: it asserts no match, so
+          # grep reads to the end and hck never loses the write.
+          rendered=$(hck check --chart "$chart" --platform aws --print)
+          [[ "$rendered" == *'eks.amazonaws.com/role-arn'* ]] || {
             echo "FAIL: --platform aws did not reach the render"
             exit 1
           }
@@ -267,11 +272,12 @@ jobs:
           hck new both --dir "$workdir" --preset web --platform aws --env prod --schema >/dev/null
           chart="$workdir/both"
           hck check --chart "$chart" --platform aws --env prod --strict >/dev/null
-          hck check --chart "$chart" --platform aws --env prod --print | grep -q 'eks.amazonaws.com/role-arn' || {
+          rendered=$(hck check --chart "$chart" --platform aws --env prod --print)
+          [[ "$rendered" == *'eks.amazonaws.com/role-arn'* ]] || {
             echo "FAIL: the platform overlay was lost when an environment was added"
             exit 1
           }
-          hck check --chart "$chart" --platform aws --env prod --print | grep -q 'kind: PodDisruptionBudget' || {
+          [[ "$rendered" == *'kind: PodDisruptionBudget'* ]] || {
             echo "FAIL: the prod overlay did not reach the render"
             exit 1
           }
@@ -320,6 +326,11 @@ jobs:
           # nothing else in the chart would ever notice it moving on.
           printf '\n{{/* an older helper set */}}\n' >> "$chart/templates/_helpers.tpl"
           rm "$chart/ci/install-values.yaml"
+          # These three read the text report because hck sync has no
+          # --format json, and the question here — which files were compared —
+          # is one an exit status cannot answer. They are the one place in
+          # this workflow coupled to hck's wording, so a relabelled sync
+          # report has to come here.
           report=$(hck sync --chart "$chart")
           [[ "$report" == *"templates/_helpers.tpl"* ]] || { echo "FAIL: sync does not compare _helpers.tpl"; exit 1; }
           [[ "$report" == *"no longer here"* ]] || { echo "FAIL: a deleted skeleton file was not reported"; exit 1; }
@@ -350,9 +361,10 @@ jobs:
       # JSON verdict has to agree with the exit status. Both are the kind of
       # thing that looks wired up while doing nothing at all.
       #
-      # Output is captured rather than piped into grep: grep -q closes the
-      # pipe on its first match, and under pipefail that turns a passing
-      # assertion into a failing step.
+      # Every assertion here reads --format json. The text report is written
+      # for people and its wording is not a contract: renaming one label
+      # ("off in .hck.yaml:" to "not checked:") turned this step red while
+      # nothing about the behaviour had changed.
       - name: Configure the house rules
         run: |
           set -euo pipefail
@@ -363,11 +375,27 @@ jobs:
 
           # Runs hck check and reports its output and status without tripping
           # set -e, since half these assertions are about a non-zero exit.
+          # stderr is dropped so that a failing run still leaves stdout as
+          # nothing but the JSON document.
           check() {
             set +e
-            out=$(hck check --chart "$chart" --no-render "$@" 2>&1)
+            out=$(hck check --chart "$chart" --no-render --format json "$@" 2>/dev/null)
             status=$?
             set -e
+          }
+
+          # The report carries a finding for that rule, at that severity when
+          # one is named.
+          reported() {
+            jq -e --arg id "$1" --arg sev "${2:-}" \
+              'any(.findings[]; .rule == $id and ($sev == "" or .severity == $sev))' \
+              >/dev/null <<<"$out"
+          }
+
+          # The report says that rule was not checked at all, which is a
+          # different thing from it having nothing to report.
+          skipped() {
+            jq -e --arg id "$1" '(.disabled // []) | index($id) != null' >/dev/null <<<"$out"
           }
 
           # Every rule the checker runs has to be listed, or a chart cannot
@@ -380,28 +408,31 @@ jobs:
           # Strip the description, which trips HCK013 without needing helm.
           printf 'apiVersion: v2\nname: ruled\n' > "$chart/Chart.yaml"
           check
-          [[ "$out" == *"HCK013"* ]] || { echo "FAIL: HCK013 did not fire"; exit 1; }
+          reported HCK013 || { echo "FAIL: HCK013 did not fire"; exit 1; }
           [ "$status" -eq 0 ] || { echo "FAIL: a warning failed the check without --strict"; exit 1; }
 
           printf 'rules:\n  HCK013: off\n' > "$chart/.hck.yaml"
           check
-          [[ "$out" != *"warn  HCK013"* ]] || { echo "FAIL: HCK013 is off and still reported"; exit 1; }
-          [[ "$out" == *"not checked: HCK013"* ]] || { echo "FAIL: the report did not say what it skipped"; exit 1; }
+          ! reported HCK013 || { echo "FAIL: HCK013 is off and still reported"; exit 1; }
+          skipped HCK013 || { echo "FAIL: the report did not say what it skipped"; exit 1; }
 
           # The wildcard reaches every rule that can be configured, a named ID
           # beats it, and neither touches the one rule that is locked.
           printf 'rules:\n  "*": off\n  HCK013: warn\n' > "$chart/.hck.yaml"
           check
-          [[ "$out" == *"warn  HCK013"* ]] || { echo "FAIL: a named ID did not beat the wildcard"; exit 1; }
-          [[ "$out" != *"HCK001"* ]] || { echo "FAIL: the wildcard reached the locked rule"; exit 1; }
-          [[ "$out" == *"not checked: HCK002"* ]] || { echo "FAIL: the wildcard did not turn the rest off"; exit 1; }
+          reported HCK013 warn || { echo "FAIL: a named ID did not beat the wildcard"; exit 1; }
+          if reported HCK001 || skipped HCK001; then
+            echo "FAIL: the wildcard reached the locked rule"
+            exit 1
+          fi
+          skipped HCK002 || { echo "FAIL: the wildcard did not turn the rest off"; exit 1; }
 
           # --off says the same thing for one run, layered over that file
           # rather than replacing it, and refuses what the file refuses.
           rm "$chart/.hck.yaml"
           check --off HCK013
-          [[ "$out" != *"warn  HCK013"* ]] || { echo "FAIL: --off did not turn the rule off"; exit 1; }
-          [[ "$out" == *"not checked: HCK013"* ]] || { echo "FAIL: --off did not say what it skipped"; exit 1; }
+          ! reported HCK013 || { echo "FAIL: --off did not turn the rule off"; exit 1; }
+          skipped HCK013 || { echo "FAIL: --off did not say what it skipped"; exit 1; }
           check --off HCK001
           [ "$status" -ne 0 ] || { echo "FAIL: --off HCK001 was accepted"; exit 1; }
           check --off HCK999
@@ -419,13 +450,13 @@ jobs:
 
           # And the JSON verdict matches the exit status, --strict included.
           rm "$chart/.hck.yaml"
-          check --format json
+          check
           [ "$status" -eq 0 ] || { echo "FAIL: a passing run reported a failure"; exit 1; }
-          [[ "$out" == *'"ok": true'* ]] || { echo "FAIL: a passing run did not report ok"; exit 1; }
+          jq -e '.ok' >/dev/null <<<"$out" || { echo "FAIL: a passing run did not report ok"; exit 1; }
 
-          check --format json --strict
+          check --strict
           [ "$status" -ne 0 ] || { echo "FAIL: --strict passed a chart with warnings"; exit 1; }
-          [[ "$out" == *'"ok": false'* ]] || { echo "FAIL: the JSON verdict disagrees with the exit status"; exit 1; }
+          jq -e '.ok == false' >/dev/null <<<"$out" || { echo "FAIL: the JSON verdict disagrees with the exit status"; exit 1; }
           echo "PASS: rule configuration"
 
       # A scaler added beside a StatefulSet has to name the StatefulSet. It did
@@ -436,6 +467,17 @@ jobs:
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
           printf 'image:\n  tag: "1.0.0"\nautoscaling:\n  enabled: true\n' > "$workdir/on.yaml"
+
+          # Findings are read as JSON. A rule ID is permanent and the JSON
+          # field names are part of the interface; the text layout is neither.
+          report() {
+            set +e
+            out=$(hck check --format json "$@" 2>/dev/null)
+            set -e
+          }
+          reported() {
+            jq -e --arg id "$1" 'any(.findings[]; .rule == $id)' >/dev/null <<<"$out"
+          }
 
           hck new sf --dir "$workdir" --preset stateful --schema >/dev/null
           hck add hpa --chart "$workdir/sf" >/dev/null
@@ -453,9 +495,15 @@ jobs:
           edited=$(mktemp)
           sed 's/targetKind: StatefulSet/targetKind: Deployment/' "$workdir/sf/values.yaml" > "$edited"
           mv "$edited" "$workdir/sf/values.yaml"
-          report=$(hck check --chart "$workdir/sf" -f "$workdir/on.yaml")
-          [[ "$report" == *"HCK033"* ]] || { echo "FAIL: a dangling scale target was not reported"; exit 1; }
-          [[ "$report" == *"StatefulSet/sf"* ]] || { echo "FAIL: the finding does not say what the chart renders"; exit 1; }
+          report --chart "$workdir/sf" -f "$workdir/on.yaml"
+          reported HCK033 || { echo "FAIL: a dangling scale target was not reported"; exit 1; }
+          # The kind the chart renders, not a label: HCK033 has to name it, or
+          # the reader has to go and look it up themselves.
+          jq -e 'any(.findings[]; .rule == "HCK033" and (.message | contains("StatefulSet/sf")))' \
+            >/dev/null <<<"$out" || {
+            echo "FAIL: the finding does not say what the chart renders"
+            exit 1
+          }
           if hck check --chart "$workdir/sf" -f "$workdir/on.yaml" --strict >/dev/null 2>&1; then
             echo "FAIL: --strict passed a scaler aimed at nothing"
             exit 1
@@ -464,8 +512,8 @@ jobs:
           # Removing a workload out from under a scaler reaches the same place.
           hck new demo --dir "$workdir" --preset web >/dev/null
           hck remove deployment --chart "$workdir/demo" >/dev/null
-          report=$(hck check --chart "$workdir/demo" -f "$workdir/on.yaml")
-          [[ "$report" == *"HCK033"* ]] || { echo "FAIL: a scaler left behind by remove was not reported"; exit 1; }
+          report --chart "$workdir/demo" -f "$workdir/on.yaml"
+          reported HCK033 || { echo "FAIL: a scaler left behind by remove was not reported"; exit 1; }
           echo "PASS: scale targets"
 
           # Two more references by name that nothing validates: the issuer a
@@ -474,13 +522,13 @@ jobs:
           hck new certs --dir "$workdir" --preset web >/dev/null
           hck add certificate issuer --chart "$workdir/certs" >/dev/null
           printf 'image:\n  tag: "1.0.0"\ncertificate: {enabled: true}\nissuer: {enabled: true, kind: selfSigned}\n' > "$workdir/certs-on.yaml"
-          report=$(hck check --chart "$workdir/certs" -f "$workdir/certs-on.yaml")
-          [[ "$report" == *"HCK034"* ]] || { echo "FAIL: an Issuer nothing uses was not reported"; exit 1; }
+          report --chart "$workdir/certs" -f "$workdir/certs-on.yaml"
+          reported HCK034 || { echo "FAIL: an Issuer nothing uses was not reported"; exit 1; }
 
           hck new agent --dir "$workdir" --preset daemon >/dev/null
           hck add service --chart "$workdir/agent" >/dev/null
-          report=$(hck check --chart "$workdir/agent")
-          [[ "$report" == *"HCK035"* ]] || { echo "FAIL: a Service forwarding to nothing was not reported"; exit 1; }
+          report --chart "$workdir/agent"
+          reported HCK035 || { echo "FAIL: a Service forwarding to nothing was not reported"; exit 1; }
           echo "PASS: dangling references"
 
           # A budget that allows nothing applies cleanly and wedges the next
@@ -490,8 +538,8 @@ jobs:
           hck check --chart "$workdir/budget" -f "$workdir/pdb-ok.yaml" --strict >/dev/null
 
           printf 'image:\n  tag: "1.0.0"\nreplicaCount: 1\npodDisruptionBudget: {enabled: true, minAvailable: 1}\n' > "$workdir/pdb-wedge.yaml"
-          report=$(hck check --chart "$workdir/budget" -f "$workdir/pdb-wedge.yaml")
-          [[ "$report" == *"HCK036"* ]] || { echo "FAIL: a budget that blocks every drain was not reported"; exit 1; }
+          report --chart "$workdir/budget" -f "$workdir/pdb-wedge.yaml"
+          reported HCK036 || { echo "FAIL: a budget that blocks every drain was not reported"; exit 1; }
           echo "PASS: disruption budgets"
 
       # init has to produce exactly what the command it prints would produce.
@@ -525,11 +573,14 @@ jobs:
           hck add $extra --chart "$chart" >/dev/null
 
           # HCK031 is expected: HPA and KEDA both scale the workload here.
-          hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml > /tmp/all.log 2>&1 || true
-          grep -q HCK031 /tmp/all.log
-          if grep 'HCK0' /tmp/all.log | grep -qv HCK031; then
-            echo "FAIL: unexpected findings"
-            grep 'HCK0' /tmp/all.log
+          # Read as JSON so that the set of rules that fired is the assertion,
+          # rather than whatever the text report happens to word them as.
+          hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml \
+            --format json > /tmp/all.json 2>/dev/null || true
+          fired=$(jq -r '[.findings[].rule] | unique | join(",")' /tmp/all.json)
+          if [ "$fired" != "HCK031" ]; then
+            echo "FAIL: expected HCK031 and nothing else, got: ${fired:-none}"
+            jq '.findings' /tmp/all.json
             exit 1
           fi
           # Assert each resource actually appears. The point of the step is
@@ -619,7 +670,11 @@ jobs:
           # --force is the escape hatch, and check has to report what it let
           # through rather than the chart passing silently.
           hck add daemonset --chart "$workdir/demo" --force
-          hck check --chart "$workdir/demo" | grep -q HCK030
+          hck check --chart "$workdir/demo" --format json 2>/dev/null \
+            | jq -e 'any(.findings[]; .rule == "HCK030")' >/dev/null || {
+            echo "FAIL: --force let two workloads through without a finding"
+            exit 1
+          }
           if hck check --chart "$workdir/demo" --strict; then
             echo "FAIL: --strict passed a chart with two workloads"
             exit 1
@@ -631,7 +686,11 @@ jobs:
             echo "FAIL: hck new --force did not write the second workload"
             exit 1
           }
-          hck check --chart "$workdir/twoforced" | grep -q HCK030
+          hck check --chart "$workdir/twoforced" --format json 2>/dev/null \
+            | jq -e 'any(.findings[]; .rule == "HCK030")' >/dev/null || {
+            echo "FAIL: hck new --force let two workloads through without a finding"
+            exit 1
+          }
 
           # A directory that is not empty is refused, and --force fills it in
           # rather than writing over it. Overwriting would take values.yaml
@@ -643,7 +702,15 @@ jobs:
           printf '\n# a line only this chart has\n' >> "$workdir/twoforced/values.yaml"
           before=$(sha256sum < "$workdir/twoforced/values.yaml")
           rm "$workdir/twoforced/templates/service.yaml"
-          hck new twoforced --dir "$workdir" --preset web --with daemonset --force | grep -q "already there"
+          # Captured rather than piped into grep: grep -q closes the pipe on
+          # its first match, and under pipefail that makes hck losing the
+          # write a failed step — which it did, intermittently. hck new has no
+          # --format json either, so this is the same text exception as sync.
+          filled=$(hck new twoforced --dir "$workdir" --preset web --with daemonset --force)
+          [[ "$filled" == *"already there"* ]] || {
+            echo "FAIL: --force did not report what it kept in place"
+            exit 1
+          }
           test -f "$workdir/twoforced/templates/service.yaml" || {
             echo "FAIL: --force did not put the missing template back"
             exit 1

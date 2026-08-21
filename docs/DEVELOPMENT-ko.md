@@ -182,6 +182,32 @@ v* 태그 푸시 → Create release (GoReleaser)
 
 <br/>
 
+### CI가 무엇을 확인하는가
+
+`ci.yml`은 빌드한 바이너리를 end-to-end로 돌립니다. `hck check`에 대한 모든
+검증은 `--format json` 출력을 `jq`로 확인합니다.
+
+```bash
+out=$(hck check --chart "$chart" --format json 2>/dev/null)
+jq -e 'any(.findings[]; .rule == "HCK033")'        >/dev/null <<<"$out"
+jq -e '(.disabled // []) | index("HCK013") != null' >/dev/null <<<"$out"
+jq -e '.ok'                                         >/dev/null <<<"$out"
+```
+
+텍스트 리포트는 사람이 읽으라고 만든 것이라 문구 자체는 계약이 아닙니다.
+라벨 하나를 `off in .hck.yaml:`에서 `not checked:`로 바꿨더니 동작은 그대로인데
+CI가 빨갛게 죽었고, `ci.yml`은 `paths-ignore` 대상이라 그 파손이 다음 코드
+커밋에 가서야 드러났습니다.
+
+의도적으로 텍스트를 그대로 확인하는 곳이 둘 있습니다.
+
+- helm이 렌더한 출력(`hck check --print | grep ...`). 그 문자열은 차트의 것이지
+  hck의 것이 아닙니다.
+- `hck sync` 검증 3건. **어느 파일이** 비교됐는지를 묻는 검증인데, `hck sync`에는
+  `--format json`이 없고 종료 코드로는 답할 수 없는 질문입니다.
+
+<br/>
+
 ## 관례
 
 - **커밋**: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`, `chore:`)

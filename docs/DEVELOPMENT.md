@@ -182,6 +182,32 @@ tag push v* → Create release (GoReleaser)
 
 <br/>
 
+### What CI asserts on
+
+`ci.yml` drives the built binary end to end. Every assertion over `hck check`
+reads `--format json` and matches it with `jq`:
+
+```bash
+out=$(hck check --chart "$chart" --format json 2>/dev/null)
+jq -e 'any(.findings[]; .rule == "HCK033")'        >/dev/null <<<"$out"
+jq -e '(.disabled // []) | index("HCK013") != null' >/dev/null <<<"$out"
+jq -e '.ok'                                         >/dev/null <<<"$out"
+```
+
+The text report is written for people and its wording is not a contract.
+Renaming one label — `off in .hck.yaml:` to `not checked:` — turned CI red
+with nothing about the behaviour having changed, and because `ci.yml` sits
+under `paths-ignore` the break did not surface until the next code commit.
+
+Two things are asserted as text on purpose:
+
+- helm's own rendered output (`hck check --print | grep ...`). Those strings
+  belong to the chart, not to hck.
+- three `hck sync` assertions, which ask *which files were compared*.
+  `hck sync` has no `--format json`, and an exit status cannot answer that.
+
+<br/>
+
 ## Conventions
 
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`, `chore:`)
