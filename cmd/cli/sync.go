@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"text/tabwriter"
 
@@ -16,6 +18,7 @@ func newSyncCmd() *cobra.Command {
 		check    bool
 		write    bool
 		all      bool
+		format   string
 	}
 
 	cmd := &cobra.Command{
@@ -118,6 +121,10 @@ that easy and one without it makes this unrecoverable.`,
 				return nil
 			}
 
+			if opts.format == formatJSON {
+				return printSyncJSON(out, c.Meta.Name, drifts, opts.check)
+			}
+
 			fprintf(out, "%s %s\n\n", p.bold("sync"), c.Meta.Name)
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			for _, d := range drifts {
@@ -152,6 +159,7 @@ that easy and one without it makes this unrecoverable.`,
 	cmd.Flags().BoolVar(&opts.check, "check", false, "exit non-zero when anything differs")
 	cmd.Flags().BoolVar(&opts.write, "write", false, "overwrite the named templates with what hck generates")
 	cmd.Flags().BoolVar(&opts.all, "all", false, "with --write, take every drifted template")
+	cmd.Flags().StringVar(&opts.format, "format", formatText, "output format: "+formatText+" or "+formatJSON+" (report only)")
 	return cmd
 }
 
@@ -194,4 +202,68 @@ func chartFromFlag(cmd *cobra.Command) (*chart.Chart, error) {
 		return nil, err
 	}
 	return chart.Load(found)
+}
+
+// jsonSync is the machine-readable shape of a sync report. The field names are
+// part of the interface, the same way check's are.
+//
+// It exists because the question this report answers — which files were
+// compared, and how each came out — is one an exit status cannot carry, and
+// the text report answers it with a "=", "~" or "!" in a column. A CI step
+// asserting on that is coupled to the layout; this is the answer to that.
+type jsonSync struct {
+	Chart string `json:"chart"`
+	// Files is every file that was compared, in the order the report prints
+	// them. A file hck does not own is absent rather than listed as current:
+	// Chart.yaml and values.yaml are never compared, and saying "current"
+	// about them would be a claim nobody checked.
+	Files []jsonSyncFile `json:"files"`
+	// OK is true when nothing differs, and matches the exit status --check
+	// produces.
+	OK bool `json:"ok"`
+}
+
+type jsonSyncFile struct {
+	// Resource is the catalog name, or the path again for a skeleton file.
+	Resource string `json:"resource"`
+	Path     string `json:"path"`
+	// State is current, edited, missing or unreadable. "edited" does not mean
+	// somebody edited it — hck cannot tell that from its own template having
+	// moved on, which is the whole reason --write takes names.
+	State string `json:"state"`
+	// Skeleton marks a chart-skeleton file rather than a resource template.
+	Skeleton bool `json:"skeleton"`
+	// Error explains an unreadable file, and is absent otherwise.
+	Error string `json:"error,omitempty"`
+}
+
+// printSyncJSON writes the report as JSON and returns the same failure the
+// text path would under --check.
+func printSyncJSON(out io.Writer, chartName string, drifts []scaffold.Drift, strict bool) error {
+	doc := jsonSync{
+		Chart: chartName,
+		Files: make([]jsonSyncFile, 0, len(drifts)),
+		OK:    !scaffold.AnyDrifted(drifts),
+	}
+	for _, d := range drifts {
+		f := jsonSyncFile{
+			Resource: d.Resource,
+			Path:     d.Path,
+			State:    string(d.State),
+			Skeleton: d.Skeleton,
+		}
+		if d.Err != nil {
+			f.Error = d.Err.Error()
+		}
+		doc.Files = append(doc.Files, f)
+	}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return err
+	}
+	if strict && !doc.OK {
+		return fmt.Errorf("chart differs from what hck generates")
+	}
+	return nil
 }

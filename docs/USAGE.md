@@ -177,6 +177,7 @@ hck sync [resource...] [flags]
 | `--check` | `false` | Exit non-zero when anything differs |
 | `--write` | `false` | Overwrite the named templates with what hck generates |
 | `--all` | `false` | With `--write`, take every drifted template |
+| `--format` | `text` | Output format: `text` or `json` (report only) |
 
 ```bash
 hck sync                      # what differs
@@ -184,6 +185,22 @@ hck sync --check              # the same, and non-zero if anything does
 hck sync --write ingress      # take hck's version of these
 hck sync --write --all        # take hck's version of everything
 ```
+
+`--format json` emits the same report as a document. Use it from CI: the table above is written for people, and its columns, markers and indentation are not an interface.
+
+```console
+$ hck sync --format json
+{
+  "chart": "payments-api",
+  "files": [
+    { "resource": "templates/_helpers.tpl", "path": "templates/_helpers.tpl", "state": "edited", "skeleton": true },
+    { "resource": "ingress", "path": "templates/ingress.yaml", "state": "current", "skeleton": false }
+  ],
+  "ok": false
+}
+```
+
+`state` is `current`, `edited`, `missing` or `unreadable`. `edited` does not mean somebody edited it — hck cannot tell that from its own template having moved on. `Chart.yaml` and `values.yaml` are absent rather than reported current: they are never compared, and saying "current" about them would be a claim nobody checked.
 
 ```
 sync demo
@@ -456,7 +473,16 @@ hck list resources
 hck list rules
 ```
 
-Resources marked `[crd]` need a CRD or feature gate the target cluster may not have. `hck list rules` prints every `HCK0xx` with its default severity — the IDs a chart's `.hck.yaml` refers to.
+Resources marked `[crd]` need a CRD or feature gate the target cluster may not have, and `[platform]` marks one that exists on that platform only. `hck list rules` prints every `HCK0xx` with its default severity — the IDs a chart's `.hck.yaml` refers to.
+
+`--format json` emits the same content as a document — `presets`, `resources`, `groups` and `rules`. Naming a section leaves the others out entirely, so a consumer can tell "none" from "not asked".
+
+```bash
+hck list resources --format json | jq -r '.resources[] | select(.platform == "gcp") | .name'
+hck list presets   --format json | jq -r '.presets[].name'
+```
+
+Read the JSON from a script, not the table: the table's indentation changed once when the catalog was grouped, and took three `awk` parsers with it.
 
 <br/>
 

@@ -1963,3 +1963,171 @@ func TestAddAcceptsAGroup(t *testing.T) {
 		}
 	}
 }
+
+// The JSON listing is the interface a script reads. The table is not: its
+// indentation changed once and took a workflow parsing it with awk down with
+// it, which is why this exists at all.
+func TestListJSON(t *testing.T) {
+	var doc struct {
+		Groups []struct {
+			Name, Summary string
+		} `json:"groups"`
+		Presets []struct {
+			Name, Summary, Platform string
+			Resources               []string
+			Schema, Docs            bool
+		} `json:"presets"`
+		Resources []struct {
+			Name, Group, File, APIVersion, Platform string
+			ValuesKeys                              []string
+			Optional, Workload                      bool
+		} `json:"resources"`
+		Rules []struct {
+			ID, Severity, Summary string
+			Locked                bool
+		} `json:"rules"`
+	}
+	mustDecode := func(t *testing.T, args ...string) {
+		t.Helper()
+		doc.Groups, doc.Presets, doc.Resources, doc.Rules = nil, nil, nil, nil
+		out := mustRun(t, append(args, "--format", "json")...)
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+	}
+
+	// Naming a section leaves the others out entirely, so a consumer can tell
+	// "none" from "not asked".
+	mustDecode(t, "list", "presets")
+	if len(doc.Presets) != len(catalog.Presets()) {
+		t.Errorf("presets: got %d want %d", len(doc.Presets), len(catalog.Presets()))
+	}
+	if doc.Resources != nil || doc.Rules != nil {
+		t.Error("hck list presets carried resources or rules")
+	}
+
+	mustDecode(t, "list", "resources")
+	if len(doc.Resources) != len(catalog.Resources()) {
+		t.Errorf("resources: got %d want %d", len(doc.Resources), len(catalog.Resources()))
+	}
+	if len(doc.Groups) != len(catalog.Groups()) {
+		t.Errorf("groups: got %d want %d", len(doc.Groups), len(catalog.Groups()))
+	}
+	if doc.Presets != nil {
+		t.Error("hck list resources carried presets")
+	}
+	// The fields the CI steps and any consumer actually read.
+	var gke int
+	for _, r := range doc.Resources {
+		if r.Name == "" || r.Group == "" || r.File == "" || r.APIVersion == "" {
+			t.Errorf("resource %+v has an empty field", r)
+		}
+		if r.Platform == "gcp" {
+			gke++
+		}
+	}
+	if gke == 0 {
+		t.Error("no resource reports a platform; the field is not being emitted")
+	}
+
+	mustDecode(t, "list", "rules")
+	if len(doc.Rules) != len(check.Rules()) {
+		t.Errorf("rules: got %d want %d", len(doc.Rules), len(check.Rules()))
+	}
+
+	// And "all" carries every section at once.
+	mustDecode(t, "list")
+	if len(doc.Presets) == 0 || len(doc.Resources) == 0 || len(doc.Rules) == 0 || len(doc.Groups) == 0 {
+		t.Errorf("hck list --format json left a section out: %d presets, %d resources, %d rules, %d groups",
+			len(doc.Presets), len(doc.Resources), len(doc.Rules), len(doc.Groups))
+	}
+}
+
+func TestListRejectsAnUnknownFormat(t *testing.T) {
+	if _, err := run(t, "list", "--format", "yaml"); err == nil {
+		t.Fatal("want an error for an unknown format")
+	}
+}
+
+// hck sync answers "which files were compared, and how did each come out".
+// An exit status cannot carry that, and the text report carries it in a
+// column, so this is the form a CI step should read.
+func TestSyncJSON(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := run(t, "new", "demo", "-d", dir, "--preset", "minimal"); err != nil {
+		t.Fatal(err)
+	}
+	chartDir := filepath.Join(dir, "demo")
+
+	decode := func(t *testing.T, args ...string) (doc struct {
+		Chart string `json:"chart"`
+		Files []struct {
+			Resource, Path, State, Error string
+			Skeleton                     bool
+		} `json:"files"`
+		OK bool `json:"ok"`
+	}) {
+		t.Helper()
+		out, err := run(t, args...)
+		if err != nil && out == "" {
+			t.Fatalf("%v", err)
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("not JSON: %v\n%s", err, out)
+		}
+		return doc
+	}
+
+	// A chart hck just wrote is by definition what hck writes.
+	doc := decode(t, "sync", "--chart", chartDir, "--format", "json")
+	if !doc.OK {
+		t.Errorf("a freshly generated chart reported drift: %+v", doc.Files)
+	}
+	if doc.Chart != "demo" {
+		t.Errorf("chart is %q", doc.Chart)
+	}
+	if len(doc.Files) == 0 {
+		t.Fatal("nothing was compared")
+	}
+	// The two files the author owns are absent rather than reported current.
+	for _, f := range doc.Files {
+		if f.Path == "Chart.yaml" || f.Path == "values.yaml" {
+			t.Errorf("%s was compared", f.Path)
+		}
+		if f.State != "current" {
+			t.Errorf("%s is %q on a fresh chart", f.Path, f.State)
+		}
+	}
+
+	// Edit one and delete another, and each comes back as its own state.
+	helpers := filepath.Join(chartDir, "templates", "_helpers.tpl")
+	body, err := os.ReadFile(helpers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(helpers, append(body, []byte("\n{{/* mine */}}\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(chartDir, "ci", "install-values.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	doc = decode(t, "sync", "--chart", chartDir, "--format", "json")
+	if doc.OK {
+		t.Error("a chart with drift reported ok")
+	}
+	states := map[string]string{}
+	for _, f := range doc.Files {
+		states[f.Path] = f.State
+	}
+	if states["templates/_helpers.tpl"] != "edited" {
+		t.Errorf("_helpers.tpl is %q, want edited", states["templates/_helpers.tpl"])
+	}
+	if states["ci/install-values.yaml"] != "missing" {
+		t.Errorf("ci/install-values.yaml is %q, want missing", states["ci/install-values.yaml"])
+	}
+
+	// --check still fails, and still prints the document.
+	if _, err := run(t, "sync", "--chart", chartDir, "--format", "json", "--check"); err == nil {
+		t.Error("--check passed a chart with drift")
+	}
+}

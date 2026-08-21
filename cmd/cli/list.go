@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"text/tabwriter"
 
@@ -11,21 +13,35 @@ import (
 )
 
 func newListCmd() *cobra.Command {
-	return &cobra.Command{
+	var format string
+	cmd := &cobra.Command{
 		Use:       "list [presets|resources|rules]",
 		Short:     "List the presets, resources and check rules hck knows",
 		Args:      cobra.OnlyValidArgs,
 		ValidArgs: []string{"presets", "resources", "rules"},
+		Long: `List what hck knows: the presets, the resource catalog and the check rules.
+
+--format json emits the same content as a document whose field names are part
+of the interface. The default output is a table for people, and its columns,
+indentation and markers are not: a script reading them breaks the next time a
+column is added.`,
 		Example: `  hck list
   hck list presets
   hck list resources
-  hck list rules`,
+  hck list rules
+  hck list resources --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			what := "all"
 			if len(args) == 1 {
 				what = args[0]
 			}
 			out := cmd.OutOrStdout()
+			if format == formatJSON {
+				return printListJSON(out, what)
+			}
+			if format != formatText {
+				return fmt.Errorf("unknown format %q (known: %s, %s)", format, formatText, formatJSON)
+			}
 			p := newPainter(out)
 
 			if what == "all" || what == "presets" {
@@ -100,6 +116,102 @@ func newListCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&format, "format", formatText, "output format: text or json")
+	return cmd
+}
+
+// jsonListing is the machine-readable shape of "hck list". The field names are
+// part of the interface — a CI step reading "resources" should keep working,
+// which is the whole reason this exists: the table above is for people, and
+// changing its indentation once already broke a workflow parsing it with awk.
+type jsonListing struct {
+	Groups    []jsonGroup    `json:"groups,omitempty"`
+	Presets   []jsonPreset   `json:"presets,omitempty"`
+	Resources []jsonResource `json:"resources,omitempty"`
+	Rules     []jsonRule     `json:"rules,omitempty"`
+}
+
+type jsonGroup struct {
+	Name    string `json:"name"`
+	Summary string `json:"summary"`
+}
+
+type jsonPreset struct {
+	Name      string   `json:"name"`
+	Summary   string   `json:"summary"`
+	Resources []string `json:"resources"`
+	// What the preset answers beyond its resource list, and what "hck init"
+	// reads. Empty and false are the ordinary case.
+	Platform    string `json:"platform,omitempty"`
+	Environment string `json:"environment,omitempty"`
+	Schema      bool   `json:"schema"`
+	Docs        bool   `json:"docs"`
+}
+
+type jsonResource struct {
+	Name       string   `json:"name"`
+	Group      string   `json:"group"`
+	File       string   `json:"file"`
+	APIVersion string   `json:"apiVersion"`
+	Summary    string   `json:"summary"`
+	ValuesKeys []string `json:"valuesKeys"`
+	Requires   []string `json:"requires,omitempty"`
+	// Platform is the one cloud this resource exists on, and "" for the ones
+	// that work anywhere. A group never expands to a resource that has one.
+	Platform string `json:"platform,omitempty"`
+	Optional bool   `json:"optional"`
+	Workload bool   `json:"workload"`
+}
+
+type jsonRule struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity"`
+	Summary  string `json:"summary"`
+	// Locked rules cannot be turned off, by .hck.yaml or by --off.
+	Locked bool `json:"locked"`
+}
+
+// printListJSON writes the listing as JSON. "all" carries every section;
+// naming one carries that section and leaves the others out entirely rather
+// than emitting them empty, so a consumer can tell "none" from "not asked".
+func printListJSON(out io.Writer, what string) error {
+	var doc jsonListing
+	if what == "all" || what == "resources" {
+		doc.Groups = make([]jsonGroup, 0, len(catalog.Groups()))
+		for _, g := range catalog.Groups() {
+			doc.Groups = append(doc.Groups, jsonGroup{Name: string(g.Name), Summary: g.Summary})
+		}
+		doc.Resources = make([]jsonResource, 0, len(catalog.Resources()))
+		for _, r := range catalog.Resources() {
+			doc.Resources = append(doc.Resources, jsonResource{
+				Name: r.Name, Group: string(r.Group), File: r.File,
+				APIVersion: r.APIVersion, Summary: r.Summary,
+				ValuesKeys: r.ValuesKeys, Requires: r.Requires,
+				Platform: r.Platform, Optional: r.Optional, Workload: r.Workload,
+			})
+		}
+	}
+	if what == "all" || what == "presets" {
+		doc.Presets = make([]jsonPreset, 0, len(catalog.Presets()))
+		for _, ps := range catalog.Presets() {
+			doc.Presets = append(doc.Presets, jsonPreset{
+				Name: ps.Name, Summary: ps.Summary, Resources: ps.Resources,
+				Platform: ps.Platform, Environment: ps.Environment,
+				Schema: ps.Schema, Docs: ps.Docs,
+			})
+		}
+	}
+	if what == "all" || what == "rules" {
+		doc.Rules = make([]jsonRule, 0, len(check.Rules()))
+		for _, r := range check.Rules() {
+			doc.Rules = append(doc.Rules, jsonRule{
+				ID: r.ID, Severity: string(r.Severity), Summary: r.Summary, Locked: r.Locked,
+			})
+		}
+	}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(doc)
 }
 
 // groupArgs is the group names as completion candidates, "@" included, so

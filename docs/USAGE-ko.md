@@ -177,6 +177,7 @@ hck sync [resource...] [flags]
 | `--check` | `false` | 하나라도 다르면 0이 아닌 코드로 종료 |
 | `--write` | `false` | 지정한 템플릿을 hck가 생성하는 것으로 덮어쓰기 |
 | `--all` | `false` | `--write`와 함께, 달라진 템플릿 전부를 가져오기 |
+| `--format` | `text` | Output format: `text` or `json` (report only) |
 
 ```bash
 hck sync                      # 무엇이 다른지
@@ -184,6 +185,22 @@ hck sync --check              # 같은 내용, 다르면 0이 아닌 종료 코�
 hck sync --write ingress      # 이 템플릿들을 hck 쪽 버전으로
 hck sync --write --all        # 전부 hck 쪽 버전으로
 ```
+
+`--format json`은 같은 리포트를 문서로 냅니다. CI에서는 이쪽을 쓰세요. 위의 표는 사람이 읽으라고 만든 것이고, 그 열·기호·들여쓰기는 인터페이스가 아닙니다.
+
+```console
+$ hck sync --format json
+{
+  "chart": "payments-api",
+  "files": [
+    { "resource": "templates/_helpers.tpl", "path": "templates/_helpers.tpl", "state": "edited", "skeleton": true },
+    { "resource": "ingress", "path": "templates/ingress.yaml", "state": "current", "skeleton": false }
+  ],
+  "ok": false
+}
+```
+
+`state`는 `current`, `edited`, `missing`, `unreadable` 중 하나입니다. `edited`는 누군가 고쳤다는 뜻이 아닙니다 — hck는 그것과 자기 템플릿이 바뀐 것을 구분하지 못합니다. `Chart.yaml`과 `values.yaml`은 `current`로 보고되는 대신 **아예 없습니다.** 비교 대상이 아니고, 아무도 확인하지 않은 것을 "current"라고 말하는 셈이 되니까요.
 
 ```
 sync demo
@@ -456,7 +473,16 @@ hck list resources
 hck list rules
 ```
 
-`[crd]`가 붙은 리소스는 대상 클러스터에 없을 수도 있는 CRD나 기능 게이트가 있어야 동작합니다. `hck list rules`는 모든 `HCK0xx`를 기본 심각도와 함께 출력합니다 — 차트의 `.hck.yaml`이 가리키는 바로 그 ID입니다.
+`[crd]`가 붙은 리소스는 대상 클러스터에 없을 수도 있는 CRD나 기능 게이트가 있어야 동작하고, `[platform]`은 그 플랫폼에만 존재하는 리소스라는 표시입니다. `hck list rules`는 모든 `HCK0xx`를 기본 심각도와 함께 출력합니다 — 차트의 `.hck.yaml`이 가리키는 바로 그 ID입니다.
+
+`--format json`은 같은 내용을 문서로 냅니다 — `presets`, `resources`, `groups`, `rules`. 섹션을 지목하면 나머지는 아예 빠지므로, 소비하는 쪽에서 "없음"과 "묻지 않음"을 구분할 수 있습니다.
+
+```bash
+hck list resources --format json | jq -r '.resources[] | select(.platform == "gcp") | .name'
+hck list presets   --format json | jq -r '.presets[].name'
+```
+
+스크립트에서는 표가 아니라 JSON을 읽으세요. 카탈로그를 그룹으로 묶을 때 표의 들여쓰기가 한 번 바뀌었고, `awk` 파서 세 개가 같이 깨졌습니다.
 
 <br/>
 

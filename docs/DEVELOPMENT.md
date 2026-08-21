@@ -199,12 +199,14 @@ Renaming one label — `off in .hck.yaml:` to `not checked:` — turned CI red
 with nothing about the behaviour having changed, and because `ci.yml` sits
 under `paths-ignore` the break did not surface until the next code commit.
 
-Two things are asserted as text on purpose:
+One thing is asserted as text on purpose: helm's own rendered output
+(`hck check --print`). Those strings belong to the chart, not to hck.
 
-- helm's own rendered output (`hck check --print | grep ...`). Those strings
-  belong to the chart, not to hck.
-- three `hck sync` assertions, which ask *which files were compared*.
-  `hck sync` has no `--format json`, and an exit status cannot answer that.
+`hck list` and `hck sync` grew a `--format json` for the same reason `check`
+had one — the workflow had to parse their tables otherwise, and one of those
+parsers duly broke. Grouping the catalog moved the listing's indentation from
+two spaces to four, and took three `awk` patterns with it. The "The JSON
+contract" step pins the field names so removing one fails there.
 
 <br/>
 

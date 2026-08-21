@@ -114,7 +114,7 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
-          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
+          for preset in $(hck list presets --format json | jq -r '.presets[].name'); do
             echo "::group::$preset"
             hck new "$preset" --dir "$workdir" --preset "$preset"
             hck check --chart "$workdir/$preset" --strict
@@ -143,6 +143,68 @@ jobs:
           hck add servicemonitor --chart "$chart"
           cmp /tmp/values.once "$chart/values.yaml"
 
+      # Every assertion in this workflow reads --format json, so the field
+      # names are the contract and this is where it is pinned. The text output
+      # is for people: its indentation changed once and took the awk parsers
+      # in this file down with it, which is what --format json is the answer
+      # to. A field removed or renamed has to fail here rather than in
+      # whatever reads it next.
+      - name: The JSON contract
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new demo --dir "$workdir" --preset minimal >/dev/null
+          chart="$workdir/demo"
+
+          # Naming a section leaves the others out, so a consumer can tell
+          # "none" from "not asked".
+          hck list presets --format json | jq -e '.presets | length > 0 and (map(.name) | index("web"))' >/dev/null
+          hck list presets --format json | jq -e 'has("resources") | not' >/dev/null || {
+            echo "FAIL: hck list presets carried resources"
+            exit 1
+          }
+          hck list resources --format json \
+            | jq -e '.resources | length > 0 and all(.[]; .name != "" and .group != "" and .file != "" and .apiVersion != "")' >/dev/null
+          hck list resources --format json | jq -e '.groups | length > 0' >/dev/null
+          hck list rules --format json | jq -e '.rules | length > 0 and all(.[]; .id != "" and .severity != "")' >/dev/null
+          hck list --format json | jq -e '.presets and .resources and .rules and .groups' >/dev/null || {
+            echo "FAIL: hck list --format json left a section out"
+            exit 1
+          }
+
+          # The platform field is what makes a gcp-only resource findable by a
+          # script; it is absent on the neutral ones by design.
+          hck list resources --format json \
+            | jq -e 'any(.resources[]; .platform == "gcp")' >/dev/null || {
+            echo "FAIL: no resource reports a platform"
+            exit 1
+          }
+
+          # sync answers which files were compared and how each came out.
+          hck sync --chart "$chart" --format json | jq -e '.ok' >/dev/null || {
+            echo "FAIL: a freshly generated chart reported drift"
+            exit 1
+          }
+          printf '\n{{/* mine */}}\n' >> "$chart/templates/_helpers.tpl"
+          rm "$chart/ci/install-values.yaml"
+          report=$(hck sync --chart "$chart" --format json)
+          jq -e '.ok == false' >/dev/null <<<"$report"
+          jq -e 'any(.files[]; .path == "templates/_helpers.tpl" and .state == "edited")' >/dev/null <<<"$report"
+          jq -e 'any(.files[]; .path == "ci/install-values.yaml" and .state == "missing")' >/dev/null <<<"$report"
+
+          # --check still fails, and still prints the document.
+          set +e
+          out=$(hck sync --chart "$chart" --format json --check 2>/dev/null)
+          status=$?
+          set -e
+          [ "$status" -ne 0 ] || { echo "FAIL: --check passed a chart with drift"; exit 1; }
+          jq -e '.ok == false' >/dev/null <<<"$out" || {
+            echo "FAIL: --check suppressed the document"
+            exit 1
+          }
+          echo "PASS: the JSON contract"
+
       # "@name" stands for a group's members. The listing is where somebody
       # learns the groups exist, so it has to carry them, and every resource
       # has to still be reachable through one — a resource in no group is
@@ -160,7 +222,7 @@ jobs:
           [ -n "$groups" ] || { echo "FAIL: the listing carries no groups"; exit 1; }
 
           # Every resource appears under exactly one group header.
-          for name in $(hck list resources | awk '/^    [a-z]/ {print $1}'); do
+          for name in $(hck list resources --format json | jq -r '.resources[].name'); do
             n=$(printf '%s' "$listing" | awk -v r="$name" '/^    [a-z]/ && $1 == r' | wc -l | tr -d ' ')
             [ "$n" = "1" ] || { echo "FAIL: $name appears $n times in the listing"; exit 1; }
           done
@@ -279,7 +341,7 @@ jobs:
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
 
-          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
+          for preset in $(hck list presets --format json | jq -r '.presets[].name'); do
             echo "::group::$preset"
             hck new "$preset" --dir "$workdir" --preset "$preset" --schema
             hck check --chart "$workdir/$preset" --strict
@@ -340,7 +402,7 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
-          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
+          for preset in $(hck list presets --format json | jq -r '.presets[].name'); do
             for platform in aws gcp azure onprem; do
               name="$preset-$platform"
               hck new "$name" --dir "$workdir" --preset "$preset" --platform "$platform" --schema >/dev/null
@@ -387,7 +449,7 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
-          for preset in $(hck list presets | awk '/^  [a-z]/ {print $1}'); do
+          for preset in $(hck list presets --format json | jq -r '.presets[].name'); do
             for env in dev staging prod; do
               name="$preset-$env"
               hck new "$name" --dir "$workdir" --preset "$preset" --env "$env" --schema >/dev/null
@@ -454,17 +516,22 @@ jobs:
           # nothing else in the chart would ever notice it moving on.
           printf '\n{{/* an older helper set */}}\n' >> "$chart/templates/_helpers.tpl"
           rm "$chart/ci/install-values.yaml"
-          # These three read the text report because hck sync has no
-          # --format json, and the question here — which files were compared —
-          # is one an exit status cannot answer. They are the one place in
-          # this workflow coupled to hck's wording, so a relabelled sync
-          # report has to come here.
-          report=$(hck sync --chart "$chart")
-          [[ "$report" == *"templates/_helpers.tpl"* ]] || { echo "FAIL: sync does not compare _helpers.tpl"; exit 1; }
-          [[ "$report" == *"no longer here"* ]] || { echo "FAIL: a deleted skeleton file was not reported"; exit 1; }
-          # ...but not the two files the author owns. Anchored to the path
-          # column: ci/install-values.yaml ends in values.yaml.
-          if printf '%s' "$report" | grep -qE '^[[:space:]]+[=~!] (Chart\.yaml|values\.yaml)[[:space:]]'; then
+          # Read as JSON: the question here is which files were compared and
+          # how each came out, and the text report answers it with a "=", "~"
+          # or "!" in a column — an assertion coupled to the layout rather
+          # than to the behaviour.
+          report=$(hck sync --chart "$chart" --format json)
+          jq -e 'any(.files[]; .path == "templates/_helpers.tpl")' >/dev/null <<<"$report" || {
+            echo "FAIL: sync does not compare _helpers.tpl"
+            exit 1
+          }
+          jq -e 'any(.files[]; .path == "ci/install-values.yaml" and .state == "missing")' >/dev/null <<<"$report" || {
+            echo "FAIL: a deleted skeleton file was not reported as missing"
+            exit 1
+          }
+          # ...but not the two files the author owns. Exact paths, so
+          # ci/install-values.yaml no longer has to be told apart by column.
+          if jq -e 'any(.files[]; .path == "Chart.yaml" or .path == "values.yaml")' >/dev/null <<<"$report"; then
             echo "FAIL: sync compares a file the chart author maintains"
             exit 1
           fi
@@ -714,7 +781,7 @@ jobs:
           workdir=$(mktemp -d)
           hck new all --dir "$workdir" --preset web --schema >/dev/null
           chart="$workdir/all"
-          extra=$(hck list resources | awk '/^    [a-z]/ {print $1}' \
+          extra=$(hck list resources --format json | jq -r '.resources[].name' \
             | grep -vE '^(deployment|statefulset|daemonset|cronjob)$' | tr '\n' ' ')
           hck add $extra --chart "$chart" >/dev/null
 
@@ -742,7 +809,7 @@ jobs:
           # Unique source files, not documents: rbac.yaml alone emits a Role
           # and a RoleBinding, so counting "# Source:" lines overcounts.
           hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml --print > /tmp/all.yaml
-          want=$(hck list resources | awk '/^    [a-z]/ {print $1}' \
+          want=$(hck list resources --format json | jq -r '.resources[].name' \
             | grep -vcE '^(statefulset|daemonset|cronjob)$')
           got=$(grep '^# Source: all/templates/' /tmp/all.yaml | sort -u | wc -l | tr -d ' ')
           echo "  catalog expects $want resources, render carries $got"
