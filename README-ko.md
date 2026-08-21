@@ -137,9 +137,17 @@ hck sync --write deployment                # hck 쪽 버전으로 가져오기
 hck check -f values/prod.yaml --strict
 hck check --off HCK025                     # 이 차트는 CPU limit 을 쓰겠다는 뜻
 
-# hck 가 거부하는 것에 대한 탈출구: 두 번째 워크로드, 비어 있지 않은 디렉터리.
-# 이미 있는 파일은 건드리지 않습니다
-hck new sidecar-pair --preset web --with daemonset --force
+# 목적 하나를 통째로 추가 — "@name" 은 그룹의 구성원 전체를 뜻합니다
+hck add @observability                     # servicemonitor, rules, dashboard
+hck list resources                         # 리소스 32개, 목적별로 묶여서 출력
+
+# 가드를 걸어 하나만 렌더되는 workload 템플릿 두 개: 거부가 아니라 만들고 알려 줍니다.
+# 둘 다 렌더되는 차트는 HCK030 이 보고합니다
+hck new blue-green --preset web --with daemonset
+
+# 탈출구: 비어 있지 않은 디렉터리. 이미 있는 파일은 건드리지 않고,
+# 그중 첫 번째가 values.yaml 입니다
+hck new recovered --preset web --force
 
 # 플랫폼 오버레이: EKS / GKE / AKS / 자체 운영에서 달라지는 것만
 hck new payments-api --platform aws
@@ -173,6 +181,8 @@ hck list rules                             # check 규칙과 그 ID
 $ hck init payments-api
 Chart name? [payments-api]
   presets:
+    base      On-prem house chart: Deployment, Service, Ingress or HTTPRoute, HPA, PVC, Certificate
+    base-aws  EKS house chart: base on AWS, with an ExternalSecret and a PDB, no Certificate
     cronjob   Scheduled task: CronJob, ServiceAccount, ConfigMap
     daemon    Node agent: DaemonSet on every node, no Service
     gateway   HTTP service on Gateway API: Deployment, Service, HTTPRoute, HPA, PDB
@@ -184,19 +194,26 @@ Chart name? [payments-api]
     stateful  Stateful service: StatefulSet, headless Service, PDB, NetworkPolicy
     web       HTTP service: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
     worker    Queue consumer: Deployment with no Service and no ingress path
-Preset? [web]
+Preset? [web] base
 Extra resources? (comma-separated) [none] servicemonitor
-Platform overlays? [none] aws
-Environment overlays? [none] dev,prod
-Write values.schema.json? [y/N] y
-Write a values table into README.md? [y/N] y
 
-created ./payments-api (preset web)
+  base also decided:
+    platform overlays: onprem
+    environment overlays: none
+    values.schema.json: yes
+    values table in README.md: yes
+
+Keep those? [Y/n]
+
+created ./payments-api (preset base)
 ...
 
 The same thing without the questions:
-  hck new payments-api --with servicemonitor --platform aws --env dev,prod --schema && hck docs --chart payments-api --write
+  hck new payments-api --preset base --with servicemonitor --platform onprem --schema && hck docs --chart payments-api --write
 ```
+
+질문이 세 개인 것은 나머지 네 개를 preset이 답하기 때문입니다. 마지막 질문에
+`n`으로 답하면 그 네 개가 열리고, 각 기본값은 preset이 고른 값입니다.
 
 마지막에 **같은 결과를 내는 명령을 출력합니다.** 질문은 첫 차트를 위한 것이고 플래그는 그다음부터를 위한 것이기 때문입니다.이 동등성은 주장이 아니라 검증된 사실입니다 — `TestInitPrintsAWorkingEquivalent`가 출력된 명령을 실제로 실행해서 두 디렉터리를 파일 단위로 비교합니다.
 

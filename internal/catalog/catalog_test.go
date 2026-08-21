@@ -487,3 +487,111 @@ func TestTheReadmeResourceCountIsTrue(t *testing.T) {
 }
 
 var readmeCountRE = regexp.MustCompile(`\| 6(?:, fixed|개 고정) \| (\d+)`)
+
+// A preset that names a platform or an environment has to name one that
+// exists. Nothing else checks it: the name goes straight into a lookup that
+// fails at run time, and a preset is exactly the place a typo would sit
+// unnoticed, since the flags that reach the same lookup are validated when
+// they are typed.
+func TestPresetOverlayNamesExist(t *testing.T) {
+	for _, ps := range Presets() {
+		for _, tc := range []struct {
+			axis Axis
+			name string
+		}{
+			{PlatformAxis, ps.Platform},
+			{EnvironmentAxis, ps.Environment},
+		} {
+			if tc.name == "" {
+				continue
+			}
+			if _, ok := LookupOverlay(tc.axis, tc.name); !ok {
+				t.Errorf("preset %q names %s %q, which does not exist (known: %s)",
+					ps.Name, tc.axis, tc.name, strings.Join(OverlayNames(tc.axis), ", "))
+			}
+		}
+	}
+}
+
+// Every resource belongs to a group that exists. A resource whose group is
+// empty, or is a string no group declares, simply does not appear in "hck
+// list resources" — the listing iterates groups, not resources — and a
+// resource nobody can find is the one failure that reports itself as nothing
+// at all.
+func TestEveryResourceHasAKnownGroup(t *testing.T) {
+	for _, r := range Resources() {
+		if _, ok := LookupGroup(string(r.Group)); !ok {
+			t.Errorf("resource %q has group %q, which does not exist (known: %s)",
+				r.Name, r.Group, strings.Join(GroupNames(), ", "))
+		}
+	}
+}
+
+// And the grouping covers the catalog exactly: walking the groups has to
+// reach every resource, once. This is the other direction of the check above
+// — that one catches a resource pointing at nothing, this one catches a group
+// quietly dropping members.
+func TestGroupsCoverEveryResourceExactlyOnce(t *testing.T) {
+	seen := map[string]int{}
+	for _, g := range Groups() {
+		for _, r := range ResourcesInGroup(g.Name) {
+			seen[r.Name]++
+		}
+	}
+	for _, r := range Resources() {
+		switch seen[r.Name] {
+		case 1:
+		case 0:
+			t.Errorf("resource %q is in no group's listing", r.Name)
+		default:
+			t.Errorf("resource %q appears in %d groups", r.Name, seen[r.Name])
+		}
+	}
+	if len(seen) != len(Resources()) {
+		t.Errorf("groups list %d resources, the catalog has %d", len(seen), len(Resources()))
+	}
+}
+
+// A group with no resources is a name in a listing with nothing under it.
+func TestEveryGroupHasResources(t *testing.T) {
+	for _, g := range Groups() {
+		if len(ResourcesInGroup(g.Name)) == 0 {
+			t.Errorf("group %q has no resources", g.Name)
+		}
+		if g.Summary == "" {
+			t.Errorf("group %q has no summary", g.Name)
+		}
+	}
+}
+
+// GroupNames is what an error message reaches for when a group name does not
+// resolve, so it has to hold every group and hold them in build order — an
+// alphabetised list would tell somebody the order is meaningless when it is
+// the order the listing is printed in.
+func TestGroupNamesAreEveryGroupInOrder(t *testing.T) {
+	names := GroupNames()
+	if len(names) != len(Groups()) {
+		t.Fatalf("GroupNames has %d, Groups has %d", len(names), len(Groups()))
+	}
+	for i, g := range Groups() {
+		if names[i] != string(g.Name) {
+			t.Errorf("position %d is %q, want %q", i, names[i], g.Name)
+		}
+	}
+}
+
+// A name that is not a group has to come back as not a group, rather than as
+// the zero Group — which would silently resolve to the resources of no group
+// at all, i.e. none, and read as an empty expansion instead of a typo.
+func TestLookupGroupRejectsWhatIsNotAGroup(t *testing.T) {
+	for _, name := range []string{"monitoring", "", "@observability", "deployment"} {
+		if g, ok := LookupGroup(name); ok {
+			t.Errorf("%q resolved to group %q", name, g)
+		}
+	}
+	// And the real ones still resolve, with no "@" — the prefix is the
+	// caller's, stripped before the lookup.
+	if _, ok := LookupGroup("observability"); !ok {
+		t.Error("observability did not resolve")
+	}
+}

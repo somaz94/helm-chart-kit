@@ -19,10 +19,54 @@
 | `queue` | serviceaccount, deployment, scaledobject, pdb, networkpolicy, configmap |
 | `monitored` | serviceaccount, deployment, service, ingress, hpa, pdb, networkpolicy, configmap, servicemonitor, prometheusrule, grafanadashboard, tests |
 | `secure` | serviceaccount, rbac, deployment, service, ingress, certificate, externalsecret, hpa, pdb, networkpolicy, configmap, tests |
+| `base` | serviceaccount, deployment, service, ingress, httproute, hpa, pvc, certificate, configmap, tests |
+| `base-aws` | serviceaccount, deployment, service, ingress, hpa, pdb, externalsecret, pvc, configmap, tests |
 
-Every preset carries exactly one workload. That is enforced by a test, not a convention: two workloads in one chart contend for the same values keys — `image`, `resources`, `updateStrategy` — with incompatible shapes. `hck new --force` waives the refusal for the chart that genuinely wants both; `hck check` still reports it as `HCK030`.
+Every preset carries exactly one workload, and a chart may carry more. Those are different statements. A preset picks one because a preset has to pick something; a chart that renders two is what `HCK030` reports, and a chart that *carries* two guarded so only one renders is an ordinary shape — a Deployment beside an Argo Rollout, each under its own `.enabled`, sharing one pod template. `hck add` and `hck new` build it and say what they built. Whether both actually render is a question about the render, and that is where it is asked.
+
+Two presets answer more than the resource list. `base` and `base-aws` are modelled on a pair of house charts an ApplicationSet repo keeps side by side — the same chart answering a different platform — so each one carries the platform it was written for, and asks for a `values.schema.json` and a values table because the charts they come from ship both:
+
+| Preset | Platform | `values.schema.json` | Values table |
+|---|---|---|---|
+| `base` | `onprem` | yes | yes |
+| `base-aws` | `aws` | yes | yes |
+
+`hck init` reads those, which is why it puts three questions rather than seven. Every other preset carries none of them and the defaults are unchanged. They are defaults and not decisions: init shows what the preset resolved to and takes no for an answer, and every flag on `hck new` still overrides.
+
+`base` carries both an Ingress and an HTTPRoute, where `web` and `gateway` each pick one. The chart it comes from guards each on its own `.enabled` and chooses per install rather than at build time.
+
+Not carried over, for want of a resource to carry them: a certificate-renewal CronJob, an `imagePullSecret`, and a `PersistentVolume` to match the claim on the on-prem side; an Argo Rollout and its AnalysisTemplate, an EFS `PersistentVolume`, three preview-environment Ingresses and a preview Service on the AWS side.
+
 
 Three of them are shaped by what they leave out, which is the part worth reading twice. `mesh` has no NetworkPolicy: in a mesh, who may call this workload is the AuthorizationPolicy's answer, at L7 and with an identity, and a second answer at L3 is a different question wearing the same name. `queue` has no HPA: a KEDA `ScaledObject` owns the replica count, and the two driving it together is exactly what `HCK031` reports. `secure` ships a Certificate and no Issuer: the Certificate defaults to a ClusterIssuer, which is where a shared one lives, and shipping a namespaced Issuer beside it without wiring the two together is what `HCK034` reports — `hck add issuer` is there for the chart that wants its own.
+
+<br/>
+
+## Groups
+
+The catalog is 32 resources and their names are Kubernetes kinds, so an alphabetical list answers *what exists* and nothing else. Finding the three pieces of a monitoring setup meant already knowing they are called `servicemonitor`, `prometheusrule` and `grafanadashboard`.
+
+Every resource belongs to one group, and a name opening with `@` stands for the group's members:
+
+```bash
+hck add @observability                  # the whole monitoring setup
+hck new payments-api --with @secrets    # every way of getting a secret in
+```
+
+| Group | For | Resources |
+|---|---|---|
+| `@workload` | what runs | cronjob, daemonset, deployment, job, statefulset |
+| `@exposure` | what reaches it | httproute, ingress, referencegrant, service |
+| `@scaling` | how many, and what may evict them | hpa, pdb, scaledjob, scaledobject, vpa |
+| `@access` | identity, permissions and who may connect | networkpolicy, rbac, serviceaccount |
+| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, sealedsecret, secret |
+| `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, prometheusrule, servicemonitor |
+| `@mesh` | Istio routing and policy | authorizationpolicy, destinationrule, virtualservice |
+| `@chart` | configuration, storage and the chart's own install test | configmap, pvc, tests |
+
+`hck list resources` prints them in this order — something runs, something reaches it, it scales, it is locked down, it is watched — which is roughly the order the decisions come in. Groups and resources are separate namespaces, kept apart by the `@`: a group and a resource may end up sharing a name, and without the prefix which one won would be decided by lookup order.
+
+A group beside one of its own members resolves once, so `--with @exposure,service` is `@exposure`.
 
 <br/>
 

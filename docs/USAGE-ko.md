@@ -17,6 +17,22 @@ hck init [chart-name] [flags]
 | `-d, --dir` | `.` | 차트를 만들 상위 디렉터리 |
 | `--defaults` | `false` | 아무것도 묻지 않고 전부 기본값 |
 
+질문은 세 개입니다. 이름, preset, 그리고 그 위에 더할 것. 나머지는 preset이 답합니다 — 어느 플랫폼을 위해 쓰인 preset인지, `values.schema.json`을 만들지, values 표를 쓸지. `init`은 preset이 정한 값을 보여 주고 그대로 갈지 한 번만 묻습니다.
+
+```
+Extra resources? (comma-separated) [none]
+
+  base also decided:
+    platform overlays: onprem
+    environment overlays: none
+    values.schema.json: yes
+    values table in README.md: yes
+
+Keep those? [Y/n]
+```
+
+아니라고 답하면 그 네 개를 다시 묻는데, 각 질문의 기본값은 빈 값이 아니라 preset이 고른 값입니다. 이 값을 하나도 들고 있지 않은 preset — `base`와 `base-aws`를 뺀 전부 — 은 `hck new`가 원래 쓰던 기본값 그대로가 되므로, 그대로 가겠다고 답해도 달라지는 것이 없습니다.
+
 모든 질문은 `hck new`의 플래그와 일대일로 대응하고, `init`은 끝날 때 **같은 결과를 내는 명령을 출력합니다.** 질문은 첫 차트를 위한 것이고, 플래그는 그다음부터를 위한 것입니다.
 
 Enter를 누르면 대괄호 안의 기본값이 적용됩니다. 입력이 중간에 끊겨도 남은 질문은 기본값이 되므로, 아래처럼 돌려도 됩니다:
@@ -48,7 +64,7 @@ hck new <chart-name> [flags]
 | `--platform` | — | 생성할 플랫폼 오버레이. 쉼표 구분: `aws`, `gcp`, `azure`, `onprem` |
 | `--env` | — | 생성할 환경 오버레이. 쉼표 구분: `dev`, `staging`, `prod` |
 | `--dry-run` | `false` | 무엇을 쓸지만 출력하고 종료 |
-| `--force` | `false` | 두 번째 워크로드를 허용하고, 비어 있지 않은 디렉터리에도 씀 |
+| `--force` | `false` | 비어 있지 않은 디렉터리에도 씀 |
 
 ```bash
 hck new payments-api
@@ -56,12 +72,12 @@ hck new billing-worker --preset worker
 hck new sessions --preset stateful --with servicemonitor
 hck new gateway --preset web --with httproute,prometheusrule --dry-run
 hck new payments-api --schema
-hck new sidecar-pair --preset web --with daemonset --force
+hck new blue-green --preset web --with daemonset
 ```
 
 차트 이름은 소문자 DNS 라벨이어야 하고(Helm 자체 제약입니다), 대상 디렉터리는 비어 있거나 없어야 합니다.
 
-`--force`는 위 두 거부를 모두 풀어 줍니다. 다만 풀렸다고 해서 좋은 생각이 되는 것은 아닙니다. 워크로드가 둘이면 여전히 `image`, `resources`, `updateStrategy`를 놓고 다투고, 차트가 둘을 다 가지고 있는 동안 `hck check`는 계속 `HCK030`으로 보고합니다. 비어 있지 않은 디렉터리에 `--force`로 쓰면 **빠진 것만 채우고 아무것도 덮어쓰지 않습니다.** 이미 있는 파일은 전부 건너뛰고 — `values.yaml`이 그중 첫 번째입니다 — 계획에 하나씩 이름이 찍힙니다. 그래서 `hck new --force`는 템플릿을 잃어버린 차트를 되살리는 방법이지, 차트를 확장하는 방법이 아닙니다. 확장은 `hck add`입니다. 그쪽은 `values.yaml`을 건너뛰는 대신 덧붙입니다.
+두 번째 workload는 거부되지 않고 만들어진 뒤 알림이 붙습니다. 가드를 걸어 한 번에 하나만 렌더되는 workload 템플릿 두 개는 흔한 형태이고, 둘이 동시에 렌더되는 것은 그렇지 않아서 `hck check`가 `HCK030`으로 보고합니다 — 가드가 보이는 렌더 쪽에서요. `--force`는 여기에 관여하지 않습니다. 비어 있지 않은 디렉터리에 `--force`로 쓰면 **빠진 것만 채우고 아무것도 덮어쓰지 않습니다.** 이미 있는 파일은 전부 건너뛰고 — `values.yaml`이 그중 첫 번째입니다 — 계획에 하나씩 이름이 찍힙니다. 그래서 `hck new --force`는 템플릿을 잃어버린 차트를 되살리는 방법이지, 차트를 확장하는 방법이 아닙니다. 확장은 `hck add`입니다. 그쪽은 `values.yaml`을 건너뛰는 대신 덧붙입니다.
 
 <br/>
 
@@ -77,7 +93,9 @@ hck add <resource>... [flags]
 |---|---|---|
 | `--chart` | `.` | 차트 디렉터리. 상위로 올라가며 `Chart.yaml`을 찾습니다 |
 | `--dry-run` | `false` | 무엇을 쓸지만 출력하고 종료 |
-| `--force` | `false` | 기존 템플릿을 덮어쓰고 두 번째 workload를 허용 |
+| `--force` | `false` | 기존 템플릿을 덮어씀 |
+
+`@`로 시작하는 이름은 그룹이고 그 구성원 전체를 뜻합니다 — `hck add @observability`는 모니터링 한 벌 전부입니다. 그룹 목록은 [RESOURCES-ko.md](RESOURCES-ko.md#그룹)와 `hck list resources`에 있습니다. 그룹을 자기 구성원과 나란히 써도 한 번만 풀립니다.
 
 ```bash
 hck add servicemonitor

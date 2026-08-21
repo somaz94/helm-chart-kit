@@ -19,10 +19,54 @@
 | `queue` | serviceaccount, deployment, scaledobject, pdb, networkpolicy, configmap |
 | `monitored` | serviceaccount, deployment, service, ingress, hpa, pdb, networkpolicy, configmap, servicemonitor, prometheusrule, grafanadashboard, tests |
 | `secure` | serviceaccount, rbac, deployment, service, ingress, certificate, externalsecret, hpa, pdb, networkpolicy, configmap, tests |
+| `base` | serviceaccount, deployment, service, ingress, httproute, hpa, pvc, certificate, configmap, tests |
+| `base-aws` | serviceaccount, deployment, service, ingress, hpa, pdb, externalsecret, pvc, configmap, tests |
 
-모든 preset은 workload를 정확히 하나만 가집니다. 이건 관례가 아니라 테스트로 강제됩니다. 한 차트에 workload가 둘이면 같은 values 키(`image`, `resources`, `updateStrategy`)를 호환되지 않는 형태로 놓고 다투기 때문입니다. 정말 둘 다 필요한 차트를 위해 `hck new --force`가 이 거부를 풀어 주지만, `hck check`는 여전히 `HCK030`으로 보고합니다.
+모든 preset은 workload를 정확히 하나만 가지지만, 차트는 둘 이상 가질 수 있습니다. 이 둘은 다른 이야기입니다. preset이 하나를 고르는 건 preset이라면 무엇이든 골라야 하기 때문이고, `HCK030`이 보고하는 것은 **둘이 동시에 렌더되는** 차트입니다. 가드를 걸어 하나만 렌더되게 해 둔 차트가 workload 템플릿을 둘 **가지고 있는** 것은 흔한 형태입니다 — Deployment 옆에 Argo Rollout을 두고 각각 자기 `.enabled` 아래에서 하나의 pod 템플릿을 공유하는 식입니다. `hck add`와 `hck new`는 그런 차트를 만들어 주고, 무엇을 만들었는지 말해 줍니다. 둘 다 실제로 렌더되는지는 렌더에 대한 질문이고, 그래서 그 질문은 렌더에서 던집니다.
+
+두 preset은 리소스 목록보다 많은 것을 답합니다. `base`와 `base-aws`는 어느 ApplicationSet 저장소가 나란히 두고 쓰는 하우스 차트 한 쌍을 본뜬 것입니다 — 같은 차트가 서로 다른 플랫폼에 답하는 형태이지요. 그래서 각자 자기가 쓰이도록 만들어진 플랫폼을 들고 있고, 원본 차트가 둘 다 갖고 있으므로 `values.schema.json`과 values 표도 함께 요청합니다.
+
+| Preset | Platform | `values.schema.json` | Values table |
+|---|---|---|---|
+| `base` | `onprem` | yes | yes |
+| `base-aws` | `aws` | yes | yes |
+
+`hck init`이 이 값을 읽기 때문에 질문이 일곱 개가 아니라 세 개입니다. 나머지 preset은 이 값을 하나도 들고 있지 않으므로 기본 동작이 그대로입니다. 이건 결정이 아니라 기본값입니다. init은 preset이 정한 것을 보여 주고 아니라는 답도 받아 주며, `hck new`의 플래그는 여전히 전부 우선합니다.
+
+`base`는 Ingress와 HTTPRoute를 둘 다 가집니다. `web`과 `gateway`가 각각 하나씩만 고르는 것과 다릅니다. 원본 차트가 각각을 자기 `.enabled`로 가드해 두고, 빌드 시점이 아니라 설치할 때마다 고르기 때문입니다.
+
+담을 리소스가 없어 옮기지 못한 것들: 온프렘 쪽은 인증서 갱신 CronJob, `imagePullSecret`, 그리고 claim에 짝이 되는 `PersistentVolume`. AWS 쪽은 Argo Rollout과 그 AnalysisTemplate, EFS `PersistentVolume`, preview 환경용 Ingress 3종, preview Service입니다.
+
 
 이 중 셋은 무엇을 뺐는지가 더 중요합니다. `mesh`에는 NetworkPolicy가 없습니다. 메시 안에서 "누가 이 워크로드를 호출할 수 있는가"는 AuthorizationPolicy가 L7에서 신원과 함께 답하는 질문이고, L3에서 같은 이름으로 한 번 더 답하면 서로 다른 두 답이 남습니다. `queue`에는 HPA가 없습니다. 레플리카 수는 KEDA `ScaledObject`가 가져가며, 둘이 함께 그 수를 움직이는 상황이 바로 `HCK031`이 보고하는 것입니다. `secure`는 Certificate만 두고 Issuer는 두지 않습니다. Certificate의 기본값은 공용 Issuer가 사는 ClusterIssuer이고, 네임스페이스 Issuer를 옆에 두고 둘을 연결하지 않는 것이 `HCK034`가 보고하는 상황입니다 — 차트 전용 Issuer가 필요하면 `hck add issuer`가 있습니다.
+
+<br/>
+
+## 그룹
+
+카탈로그는 리소스 32개이고 이름은 전부 Kubernetes 종류(kind)입니다. 그래서 알파벳 목록은 *무엇이 있는가*만 답하고 그 이상은 답하지 못합니다. 모니터링 한 벌을 찾으려면 그게 `servicemonitor`, `prometheusrule`, `grafanadashboard`라고 불린다는 걸 이미 알고 있어야 했습니다.
+
+모든 리소스는 그룹 하나에 속하고, `@`로 시작하는 이름은 그 그룹의 구성원 전체를 뜻합니다.
+
+```bash
+hck add @observability                  # the whole monitoring setup
+hck new payments-api --with @secrets    # every way of getting a secret in
+```
+
+| Group | For | Resources |
+|---|---|---|
+| `@workload` | what runs | cronjob, daemonset, deployment, job, statefulset |
+| `@exposure` | what reaches it | httproute, ingress, referencegrant, service |
+| `@scaling` | how many, and what may evict them | hpa, pdb, scaledjob, scaledobject, vpa |
+| `@access` | identity, permissions and who may connect | networkpolicy, rbac, serviceaccount |
+| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, sealedsecret, secret |
+| `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, prometheusrule, servicemonitor |
+| `@mesh` | Istio routing and policy | authorizationpolicy, destinationrule, virtualservice |
+| `@chart` | configuration, storage and the chart's own install test | configmap, pvc, tests |
+
+`hck list resources`는 이 순서로 출력합니다 — 무언가 돌고, 무언가 그것에 닿고, 스케일되고, 잠기고, 관측된다 — 대체로 결정이 내려지는 순서입니다. 그룹과 리소스는 서로 다른 이름 공간이고 `@`가 그 둘을 갈라 놓습니다. 나중에 그룹과 리소스가 같은 이름을 갖게 될 수 있는데, 접두사가 없으면 어느 쪽이 이기는지를 조회 순서가 정하게 됩니다.
+
+그룹을 자기 구성원과 나란히 써도 한 번만 풀립니다. `--with @exposure,service`는 `@exposure`와 같습니다.
 
 <br/>
 

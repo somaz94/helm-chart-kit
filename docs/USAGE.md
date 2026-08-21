@@ -17,6 +17,22 @@ hck init [chart-name] [flags]
 | `-d, --dir` | `.` | Parent directory to create the chart in |
 | `--defaults` | `false` | Take every default and ask nothing |
 
+Three questions: a name, a preset, and anything to add on top. The preset answers the rest — which platform it was written for, whether to generate a `values.schema.json`, whether to write a values table — and `init` shows what it resolved to and asks once whether to keep it:
+
+```
+Extra resources? (comma-separated) [none]
+
+  base also decided:
+    platform overlays: onprem
+    environment overlays: none
+    values.schema.json: yes
+    values table in README.md: yes
+
+Keep those? [Y/n]
+```
+
+Answering no opens those four, each seeded with what the preset chose rather than with nothing. A preset that carries none of them — every one but `base` and `base-aws` — resolves to the same defaults `hck new` has always had, so saying yes to it changes nothing.
+
 Every question corresponds to a flag on `hck new`, and `init` prints the equivalent command when it finishes — the questions are for the first chart, the flags are for every one after it.
 
 Enter takes the default shown in brackets. EOF partway through takes the rest of the defaults, so this is a valid way to drive it:
@@ -48,7 +64,7 @@ hck new <chart-name> [flags]
 | `--platform` | — | Platform values overlays to write, comma-separated: `aws`, `gcp`, `azure`, `onprem` |
 | `--env` | — | Environment values overlays to write, comma-separated: `dev`, `staging`, `prod` |
 | `--dry-run` | `false` | Print what would be written and exit |
-| `--force` | `false` | Allow a second workload, and write into a directory that is not empty |
+| `--force` | `false` | Write into a directory that is not empty |
 
 ```bash
 hck new payments-api
@@ -56,12 +72,12 @@ hck new billing-worker --preset worker
 hck new sessions --preset stateful --with servicemonitor
 hck new gateway --preset web --with httproute,prometheusrule --dry-run
 hck new payments-api --schema
-hck new sidecar-pair --preset web --with daemonset --force
+hck new blue-green --preset web --with daemonset
 ```
 
 The chart name must be a lowercase DNS label — Helm's own constraint — and the target directory must be empty or absent.
 
-`--force` waives both of the refusals above, and neither becomes a good idea by being waived. A second workload still contends for `image`, `resources` and `updateStrategy`, and `hck check` reports it as `HCK030` for as long as the chart carries both. Forcing into a directory that is not empty **fills in what is missing and writes over nothing** — every file already there is skipped, `values.yaml` first among them, and the plan names each one. That makes `hck new --force` a way to recover a chart that lost a template, and not a way to extend one: use `hck add`, which appends to `values.yaml` instead of leaving it alone.
+A second workload is built and noted rather than refused. Two workload templates guarded so that one renders at a time is an ordinary shape; two rendering at once is not, and `hck check` reports that as `HCK030` — over the render, where the guard is visible. `--force` has nothing to do with it. Forcing into a directory that is not empty **fills in what is missing and writes over nothing** — every file already there is skipped, `values.yaml` first among them, and the plan names each one. That makes `hck new --force` a way to recover a chart that lost a template, and not a way to extend one: use `hck add`, which appends to `values.yaml` instead of leaving it alone.
 
 <br/>
 
@@ -77,7 +93,9 @@ hck add <resource>... [flags]
 |---|---|---|
 | `--chart` | `.` | Chart directory; parent directories are searched for `Chart.yaml` |
 | `--dry-run` | `false` | Print what would be written and exit |
-| `--force` | `false` | Overwrite existing templates and allow a second workload |
+| `--force` | `false` | Overwrite existing templates |
+
+A name opening with `@` is a group and stands for its members — `hck add @observability` is the whole monitoring setup. The groups are in [RESOURCES.md](RESOURCES.md#groups) and in `hck list resources`. A group beside one of its own members resolves once.
 
 ```bash
 hck add servicemonitor

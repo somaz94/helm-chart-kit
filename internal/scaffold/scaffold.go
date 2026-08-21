@@ -117,14 +117,12 @@ type NewOptions struct {
 	Platforms []string
 	// Environments names the environment overlays to write alongside them.
 	Environments []string
-	// Force waives the two refusals that stand between a request and a chart:
-	// a second primary workload, and a target directory that is not empty.
+	// Force waives the one refusal that stands between a request and a
+	// chart: a target directory that is not empty.
 	//
-	// It is the escape hatch, not a second mode. A second workload still
-	// renders a chart "hck check" reports HCK030 over, and a non-empty
-	// directory is filled in rather than overwritten — every file already
-	// there is skipped, values.yaml included, because values.yaml is never
-	// rewritten.
+	// It is the escape hatch, not a second mode. The directory is filled in
+	// rather than overwritten — every file already there is skipped,
+	// values.yaml included, because values.yaml is never rewritten.
 	Force bool
 }
 
@@ -142,14 +140,10 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	// --with can name a workload on top of the one the preset already brings.
-	// "hck add" has always refused that; creating the same chart in one shot
-	// used to be allowed, which is the more likely way to reach for it.
-	if !opts.Force {
-		if err := checkSingleWorkload(resources, nil); err != nil {
-			return nil, fmt.Errorf("%w, or pass --force if you really mean it", err)
-		}
-	}
+	// --with can name a workload on top of the one the preset already
+	// brings. That is worth saying out loud and not worth refusing: see
+	// noteTwoWorkloads.
+	workloadNote := noteTwoWorkloads(resources, nil)
 
 	dir, err := filepath.Abs(filepath.Join(opts.Parent, opts.Name))
 	if err != nil {
@@ -174,6 +168,9 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	}
 
 	plan := &Plan{ChartDir: dir}
+	if workloadNote != "" {
+		plan.Notes = append(plan.Notes, workloadNote)
+	}
 
 	skeleton, err := render.ChartFiles()
 	if err != nil {
@@ -295,13 +292,10 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !force {
-		if err := checkSingleWorkload(resources, existingTemplates); err != nil {
-			return nil, fmt.Errorf("%w, or pass --force if you really mean it", err)
-		}
-	}
-
 	plan := &Plan{ChartDir: c.Dir}
+	if note := noteTwoWorkloads(resources, existingTemplates); note != "" {
+		plan.Notes = append(plan.Notes, note)
+	}
 	present := presentResources(existingTemplates)
 	existing := resourcesFrom(present)
 
@@ -466,10 +460,32 @@ func Apply(p *Plan) error {
 
 // resolve maps names to catalog resources, dropping duplicates and keeping
 // the order they were asked for.
+//
+// A name opening with "@" is a group and stands for its members: "@observability"
+// is the three pieces of a monitoring setup, which is the thing somebody
+// wanted rather than servicemonitor, prometheusrule and grafanadashboard by
+// name. The prefix is what keeps the two namespaces apart — a group and a
+// resource could otherwise be given the same name later, and the winner would
+// be decided by lookup order.
 func resolve(requested []string) ([]catalog.Resource, error) {
 	seen := map[string]bool{}
 	out := make([]catalog.Resource, 0, len(requested))
 	for _, name := range requested {
+		if group, ok := strings.CutPrefix(name, "@"); ok {
+			g, ok := catalog.LookupGroup(group)
+			if !ok {
+				return nil, fmt.Errorf("unknown group %q (known: @%s)",
+					name, strings.Join(catalog.GroupNames(), ", @"))
+			}
+			for _, r := range catalog.ResourcesInGroup(g) {
+				if seen[r.Name] {
+					continue
+				}
+				seen[r.Name] = true
+				out = append(out, r)
+			}
+			continue
+		}
 		if seen[name] {
 			continue
 		}
@@ -486,21 +502,25 @@ func resolve(requested []string) ([]catalog.Resource, error) {
 	return out, nil
 }
 
-// checkSingleWorkload refuses a chart that would end up carrying more than one
-// primary workload.
+// noteTwoWorkloads describes a chart that would end up carrying more than one
+// primary workload template, and returns "" when it would not.
 //
-// The count is over the finished chart, not just over what is arriving: two
-// workloads named in the same command are the same defect as one landing next
-// to one already there, and both used to slip through — the old version
-// returned early whenever the chart had none yet.
+// This is a note and not a refusal, and the distinction is the whole of it: a
+// template in the chart is not a workload in the render. The shape that made
+// that plain ships templates/deployment.yaml under {{- if not
+// .Values.rollout.enabled }} beside templates/rollout.yaml under {{- if
+// .Values.rollout.enabled }}, both pulling one pod template from a shared
+// helper so the two cannot drift. Exactly one ever renders, and they share
+// their values keys deliberately rather than contending for them.
 //
-// They contend for image, resources and updateStrategy with incompatible
-// shapes, and the first to be merged wins, so the chart renders and then does
-// not apply. With a values.schema.json it is worse: the schema resolves the
-// contested key by canonical order while values.yaml resolves it by merge
-// order, the two pick different owners, and helm rejects values the workload
-// actually in the chart accepts.
-func checkSingleWorkload(adding []catalog.Resource, existingTemplates []string) error {
+// Whether both actually render is a question about the rendered manifest, and
+// HCK030 answers it there — over what helm produced, with the values in hand.
+// Refusing here answered it from the resource names, which cannot see a
+// guard, so it blocked that chart along with the accidental kind. The count is
+// still over the finished chart rather than over what is arriving: two
+// workloads named in one command are the same thing as one landing beside one
+// already there.
+func noteTwoWorkloads(adding []catalog.Resource, existingTemplates []string) string {
 	present := presentResources(existingTemplates)
 	var have []string
 	for _, r := range catalog.Resources() {
@@ -515,16 +535,13 @@ func checkSingleWorkload(adding []catalog.Resource, existingTemplates []string) 
 		}
 	}
 	if len(have)+len(incoming) < 2 {
-		return nil
+		return ""
 	}
-	if len(have) > 0 {
-		return fmt.Errorf(
-			"chart already has the %s workload; adding %s would give it two, and they contend for the same values keys with incompatible shapes. Split it into two charts",
-			strings.Join(have, " and "), strings.Join(incoming, " and "))
-	}
-	return fmt.Errorf(
-		"%s are both primary workloads and a chart carries one; they contend for the same values keys with incompatible shapes. Split them into two charts",
-		strings.Join(incoming, " and "))
+	all := append(append([]string{}, have...), incoming...)
+	slices.Sort(all)
+	return fmt.Sprintf(
+		"chart carries %d workload templates (%s); guard them so one renders at a time, or hck check reports HCK030",
+		len(all), strings.Join(all, ", "))
 }
 
 // presentResources maps catalog names to whether the chart carries their file.

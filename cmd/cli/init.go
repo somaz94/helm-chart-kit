@@ -112,6 +112,12 @@ func (q *prompter) say(format string, a ...any) {
 // interview fills in the answers. Each question can fail, because a read
 // error is not the same as an empty line, and a chart scaffolded from a
 // broken pipe is worse than no chart.
+//
+// Three questions, not seven. The preset answers the other four — it knows
+// which platform it was written for and whether the chart it is modelled on
+// ships a values.schema.json — so the flow shows what it resolved to and asks
+// once whether that is right. Answering no opens the four, seeded with the
+// preset's own values rather than with nothing.
 func (q *prompter) interview(a *answers, p painter) error {
 	var err error
 	q.say("%s\n\n", p.bold("A few questions. Enter takes the default in brackets."))
@@ -127,36 +133,101 @@ func (q *prompter) interview(a *answers, p painter) error {
 	if a.preset, err = q.ask("Preset?", a.preset); err != nil {
 		return err
 	}
+	a.applyPreset()
 
-	q.say("\n  %s\n", p.dim("optional resources: "+strings.Join(addableNames(), ", ")))
+	q.say("\n  %s\n", p.dim("groups: @"+strings.Join(catalog.GroupNames(), ", @")))
+	q.say("  %s\n", p.dim("optional resources: "+strings.Join(addableNames(), ", ")))
 	list, err := q.ask("Extra resources? (comma-separated)", "")
 	if err != nil {
 		return err
 	}
 	a.extra = splitList([]string{list})
 
+	q.say("\n  %s\n", p.dim(a.preset+" also decided:"))
+	for _, line := range a.decided() {
+		q.say("    %s\n", line)
+	}
+	q.say("\n")
+	keep, err := q.askYesNo("Keep those?", true)
+	if err != nil {
+		return err
+	}
+	if keep {
+		q.say("\n")
+		return nil
+	}
+	return q.askTheRest(a, p)
+}
+
+// askTheRest puts the four questions the preset had answered, each defaulting
+// to what the preset chose.
+func (q *prompter) askTheRest(a *answers, p painter) error {
 	q.say("\n  %s\n", p.dim("platforms: "+strings.Join(catalog.OverlayNames(catalog.PlatformAxis), ", ")))
-	if list, err = q.ask("Platform overlays?", ""); err != nil {
+	list, err := q.ask("Platform overlays?", strings.Join(a.platforms, ","))
+	if err != nil {
 		return err
 	}
 	a.platforms = splitList([]string{list})
 
 	q.say("\n  %s\n", p.dim("environments: "+strings.Join(catalog.OverlayNames(catalog.EnvironmentAxis), ", ")))
-	if list, err = q.ask("Environment overlays?", ""); err != nil {
+	if list, err = q.ask("Environment overlays?", strings.Join(a.envs, ",")); err != nil {
 		return err
 	}
 	a.envs = splitList([]string{list})
 
 	q.say("\n")
-	if a.schema, err = q.askYesNo("Write values.schema.json?", false); err != nil {
+	if a.schema, err = q.askYesNo("Write values.schema.json?", a.schema); err != nil {
 		return err
 	}
 	q.say("\n")
-	if a.readme, err = q.askYesNo("Write a values table into README.md?", false); err != nil {
+	if a.readme, err = q.askYesNo("Write a values table into README.md?", a.readme); err != nil {
 		return err
 	}
 	q.say("\n")
 	return nil
+}
+
+// applyPreset seeds the four answers the preset carries. An unknown preset is
+// left alone: PlanNew reports it, with the list of the ones that exist.
+func (a *answers) applyPreset() {
+	ps, ok := catalog.LookupPreset(a.preset)
+	if !ok {
+		return
+	}
+	a.platforms = nil
+	if ps.Platform != "" {
+		a.platforms = []string{ps.Platform}
+	}
+	a.envs = nil
+	if ps.Environment != "" {
+		a.envs = []string{ps.Environment}
+	}
+	a.schema, a.readme = ps.Schema, ps.Docs
+}
+
+// decided renders what the preset settled, one line each, so that saying yes
+// to it is saying yes to something visible.
+func (a *answers) decided() []string {
+	return []string{
+		"platform overlays: " + orNone(strings.Join(a.platforms, ", ")),
+		"environment overlays: " + orNone(strings.Join(a.envs, ", ")),
+		"values.schema.json: " + yesNo(a.schema),
+		"values table in README.md: " + yesNo(a.readme),
+	}
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 func newInitCmd() *cobra.Command {
@@ -169,6 +240,11 @@ func newInitCmd() *cobra.Command {
 		Use:   "init [chart-name]",
 		Short: "Create a chart by answering a few questions",
 		Long: `Ask what the chart is for, then scaffold it.
+
+Three questions: a name, a preset, and anything to add on top. The preset
+answers the rest — which platform it was written for, whether to generate a
+values.schema.json, whether to write a values table — and init shows what it
+resolved to and asks once whether to keep it. Answering no opens those four.
 
 Everything here is also a flag on "hck new"; init prints the equivalent
 command when it is done, so the second chart can skip the questions.
@@ -188,6 +264,9 @@ remaining questions take their defaults and stop being printed.`,
 			if len(args) == 1 {
 				a.name = args[0]
 			}
+			// So that --defaults means the preset's defaults too, and not
+			// only the zero value of every field.
+			a.applyPreset()
 
 			if !opts.defaults {
 				if err := q.interview(&a, p); err != nil {

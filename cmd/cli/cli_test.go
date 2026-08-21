@@ -197,13 +197,22 @@ func TestAddOutsideAChart(t *testing.T) {
 
 // "hck new --with <workload>" used to build a chart carrying two of them,
 // which hck refuses to do through "hck add" and documents as impossible.
-func TestNewRefusesASecondWorkload(t *testing.T) {
-	_, err := run(t, "new", "demo", "-d", t.TempDir(), "--preset", "web", "--with", "daemonset")
-	if err == nil {
-		t.Fatal("want an error for two workloads in one chart")
+// A second workload is built and reported, not refused. Guarded so that one
+// renders at a time it is the Deployment-to-Rollout swap; both rendering at
+// once is HCK030's finding, over the render rather than the resource names.
+func TestNewBuildsASecondWorkloadAndSaysSo(t *testing.T) {
+	dir := t.TempDir()
+	out, err := run(t, "new", "demo", "-d", dir, "--preset", "web", "--with", "daemonset")
+	if err != nil {
+		t.Fatalf("want a chart, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "primary workload") {
-		t.Errorf("unexpected error: %v", err)
+	if !strings.Contains(out, "HCK030") {
+		t.Errorf("the note does not name the rule that answers it:\n%s", out)
+	}
+	for _, f := range []string{"templates/deployment.yaml", "templates/daemonset.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, "demo", f)); err != nil {
+			t.Errorf("%s was not written: %v", f, err)
+		}
 	}
 }
 
@@ -923,9 +932,10 @@ func TestNewWritesBothAxes(t *testing.T) {
 
 func TestInitAsksAndScaffolds(t *testing.T) {
 	parent := t.TempDir()
-	out := mustRunWith(t, "payments-api\nworker\npvc\naws\nprod\ny\nn\n", "init", "-d", parent)
+	// "n" to "Keep those?" is what opens the four the preset had answered.
+	out := mustRunWith(t, "payments-api\nworker\npvc\nn\naws\nprod\ny\nn\n", "init", "-d", parent)
 
-	for _, want := range []string{"Chart name?", "Preset?", "Platform overlays?", "Environment overlays?", "[y/N]"} {
+	for _, want := range []string{"Chart name?", "Preset?", "Keep those?", "Platform overlays?", "Environment overlays?", "[y/N]"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("prompt %q was not asked:\n%s", want, out)
 		}
@@ -1036,9 +1046,43 @@ func TestInitStopsAskingAtEOF(t *testing.T) {
 	}
 }
 
+// The short path: a name, a preset, nothing extra, and Enter. A preset that
+// carries a platform and asks for a schema produces both without being asked
+// about either, which is the whole reason the fields exist.
+func TestInitTakesWhatThePresetDecided(t *testing.T) {
+	parent := t.TempDir()
+	out := mustRunWith(t, "house\nbase\n\n\n", "init", "-d", parent)
+
+	if !strings.Contains(out, "base also decided:") {
+		t.Errorf("init did not show what the preset settled:\n%s", out)
+	}
+	// The four it settled are shown, not merely applied.
+	for _, want := range []string{"platform overlays: onprem", "values.schema.json: yes", "values table in README.md: yes"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q is not in the summary:\n%s", want, out)
+		}
+	}
+	// And it never puts the questions it answered.
+	for _, never := range []string{"Platform overlays?", "Write values.schema.json?"} {
+		if strings.Contains(out, never) {
+			t.Errorf("%q was asked anyway:\n%s", never, out)
+		}
+	}
+	dir := filepath.Join(parent, "house")
+	for _, name := range []string{"values-onprem.yaml", "values.schema.json", "README.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was not written", name)
+		}
+	}
+	// The printed command has to reproduce it, overlay and schema included.
+	if !strings.Contains(out, "--preset base --platform onprem --schema") {
+		t.Errorf("the equivalent command does not carry what the preset decided:\n%s", out)
+	}
+}
+
 func TestInitWritesTheReadmeWhenAsked(t *testing.T) {
 	parent := t.TempDir()
-	mustRunWith(t, "documented\n\n\n\n\nn\ny\n", "init", "-d", parent)
+	mustRunWith(t, "documented\n\n\nn\n\n\nn\ny\n", "init", "-d", parent)
 	body, err := os.ReadFile(filepath.Join(parent, "documented", "README.md"))
 	if err != nil {
 		t.Fatalf("no README: %v", err)
@@ -1846,5 +1890,59 @@ func TestEveryPresetRendersWithItsResourcesOn(t *testing.T) {
 				t.Fatalf("preset %s does not pass its own check with its resources on:\n%s", preset, report)
 			}
 		})
+	}
+}
+
+// The resource listing is grouped, and the group headers carry the "@" that
+// makes them usable: reading "@observability" in the listing is the whole way
+// somebody learns that "hck add @observability" is a thing.
+func TestListResourcesIsGrouped(t *testing.T) {
+	out := mustRun(t, "list", "resources")
+	for _, g := range catalog.Groups() {
+		if !strings.Contains(out, "@"+string(g.Name)) {
+			t.Errorf("group %q has no header in the listing:\n%s", g.Name, out)
+		}
+		if !strings.Contains(out, g.Summary) {
+			t.Errorf("group %q has no summary in the listing", g.Name)
+		}
+	}
+	// Every resource still appears — grouping must not drop any.
+	for _, r := range catalog.Resources() {
+		if !strings.Contains(out, r.Name) {
+			t.Errorf("resource %q is not in the listing", r.Name)
+		}
+	}
+	if !strings.Contains(out, "hck add @observability") {
+		t.Errorf("the listing does not say what an @name is for:\n%s", out)
+	}
+}
+
+// Tab completion offers the groups beside the resources, "@" included.
+func TestGroupArgsCarryThePrefix(t *testing.T) {
+	got := groupArgs()
+	if len(got) != len(catalog.GroupNames()) {
+		t.Fatalf("groupArgs has %d, there are %d groups", len(got), len(catalog.GroupNames()))
+	}
+	for i, name := range catalog.GroupNames() {
+		if got[i] != "@"+name {
+			t.Errorf("position %d is %q, want %q", i, got[i], "@"+name)
+		}
+	}
+}
+
+// And the group reaches the chart through the CLI, not only through resolve.
+func TestAddAcceptsAGroup(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := run(t, "new", "demo", "-d", dir, "--preset", "minimal"); err != nil {
+		t.Fatal(err)
+	}
+	chartDir := filepath.Join(dir, "demo")
+	if _, err := run(t, "add", "@observability", "--chart", chartDir); err != nil {
+		t.Fatalf("hck add @observability: %v", err)
+	}
+	for _, r := range catalog.ResourcesInGroup(catalog.ObservabilityGroup) {
+		if _, err := os.Stat(filepath.Join(chartDir, "templates", r.File)); err != nil {
+			t.Errorf("%s was not written: %v", r.File, err)
+		}
 	}
 }

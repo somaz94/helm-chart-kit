@@ -21,14 +21,19 @@ func newAddCmd() *cobra.Command {
 
 Files are never overwritten and values.yaml is never rewritten: a key already
 present is reported and left exactly as it is, comments and ordering intact.
-New keys are appended with the documentation that belongs to them.`,
+New keys are appended with the documentation that belongs to them.
+
+A name opening with "@" is a group and stands for its members, so "@observability"
+adds the whole monitoring setup. "hck list resources" lists the groups.`,
 		Args: cobra.MinimumNArgs(1),
 		Example: `  hck add servicemonitor
   hck add pdb networkpolicy
+  hck add @observability
+  hck add @secrets --dry-run
   hck add httproute --dry-run
   hck add externalsecret --chart ./charts/payments-api`,
 		ValidArgsFunction: func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-			return catalog.ResourceNames(), cobra.ShellCompDirectiveNoFileComp
+			return append(groupArgs(), catalog.ResourceNames()...), cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := chart.Find(opts.chartDir)
@@ -70,6 +75,6 @@ New keys are appended with the documentation that belongs to them.`,
 
 	cmd.Flags().StringVar(&opts.chartDir, "chart", ".", "chart directory; parent directories are searched for Chart.yaml")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print what would be written and exit")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite existing template files and allow a second workload")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite existing template files")
 	return cmd
 }

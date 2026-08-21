@@ -44,16 +44,28 @@ func newListCmd() *cobra.Command {
 
 			if what == "all" || what == "resources" {
 				fprintf(out, "%s\n", p.bold("RESOURCES"))
+				// Grouped rather than alphabetical: the names are Kubernetes
+				// kinds, so a flat list answers "what exists" and leaves
+				// "which of these do I want" to somebody who already knows.
+				// The blank line before each group header ends the
+				// tabwriter's current cell block, so every group sizes its
+				// own columns. That is the readable outcome and not an
+				// accident: @workload would otherwise carry a column wide
+				// enough for gateway.networking.k8s.io/v1beta1.
 				w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-				for _, r := range catalog.Resources() {
-					mark := ""
-					if r.Optional {
-						mark = p.yellow(" [crd]")
+				for _, g := range catalog.Groups() {
+					fmt.Fprintf(w, "\n  %s\t\t%s\n", p.bold("@"+string(g.Name)), p.dim(g.Summary))
+					for _, r := range catalog.ResourcesInGroup(g.Name) {
+						mark := ""
+						if r.Optional {
+							mark = p.yellow(" [crd]")
+						}
+						fmt.Fprintf(w, "    %s\t%s\t%s%s\n", r.Name, p.dim(r.APIVersion), r.Summary, mark)
 					}
-					fmt.Fprintf(w, "  %s\t%s\t%s%s\n", r.Name, p.dim(r.APIVersion), r.Summary, mark)
 				}
 				_ = w.Flush()
 				fprintf(out, "\n  %s needs a CRD or feature the cluster may not have\n", p.yellow("[crd]"))
+				fprintf(out, "  %s adds the whole group: hck add @observability\n", p.bold("@name"))
 			}
 
 			if what == "all" {
@@ -80,4 +92,15 @@ func newListCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// groupArgs is the group names as completion candidates, "@" included, so
+// that tab-completion offers them beside the resource names.
+func groupArgs() []string {
+	names := catalog.GroupNames()
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, "@"+n)
+	}
+	return out
 }

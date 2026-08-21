@@ -11,6 +11,83 @@ import (
 	"strings"
 )
 
+// Group is what a resource is for, which is the question somebody adding one
+// actually has. The catalog is 32 resources and their names are Kubernetes
+// kinds, so an alphabetical list answers "what exists" and nothing else:
+// finding the three pieces of a monitoring setup meant already knowing they
+// are called servicemonitor, prometheusrule and grafanadashboard.
+type Group string
+
+const (
+	WorkloadGroup      Group = "workload"
+	ExposureGroup      Group = "exposure"
+	ScalingGroup       Group = "scaling"
+	AccessGroup        Group = "access"
+	SecretsGroup       Group = "secrets"
+	ObservabilityGroup Group = "observability"
+	MeshGroup          Group = "mesh"
+	ChartGroup         Group = "chart"
+)
+
+// groups are listed in the order a chart is usually built up rather than
+// alphabetically: something runs, something reaches it, it scales, it is
+// locked down, it is watched. The listing follows this order, so reading it
+// top to bottom is roughly the order the decisions come in.
+var groups = []struct {
+	Name    Group
+	Summary string
+}{
+	{WorkloadGroup, "what runs"},
+	{ExposureGroup, "what reaches it"},
+	{ScalingGroup, "how many, and what may evict them"},
+	{AccessGroup, "identity, permissions and who may connect"},
+	{SecretsGroup, "secrets and the certificates that need them"},
+	{ObservabilityGroup, "scraping, alerting and dashboards"},
+	{MeshGroup, "Istio routing and policy"},
+	{ChartGroup, "configuration, storage and the chart's own install test"},
+}
+
+// Groups returns every group in build order, with its one-line summary.
+func Groups() []struct {
+	Name    Group
+	Summary string
+} {
+	return append([]struct {
+		Name    Group
+		Summary string
+	}{}, groups...)
+}
+
+// LookupGroup reports whether the name is a group.
+func LookupGroup(name string) (Group, bool) {
+	for _, g := range groups {
+		if string(g.Name) == name {
+			return g.Name, true
+		}
+	}
+	return "", false
+}
+
+// GroupNames lists every group name, in build order.
+func GroupNames() []string {
+	out := make([]string, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, string(g.Name))
+	}
+	return out
+}
+
+// ResourcesInGroup returns the group's resources, sorted by name.
+func ResourcesInGroup(g Group) []Resource {
+	var out []Resource
+	for _, r := range Resources() {
+		if r.Group == g {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // Resource is one generatable Helm template plus the values it introduces.
 type Resource struct {
 	// Name is the identifier passed to "hck add".
@@ -35,23 +112,49 @@ type Resource struct {
 	// Optional marks a resource that depends on a CRD or feature gate the
 	// target cluster may not have (Gateway API, Prometheus Operator, ESO).
 	Optional bool
-	// Workload marks the resource as a chart's primary workload. A chart
-	// carries exactly one: they contend for the same values keys — image,
-	// resources, updateStrategy — with incompatible shapes, so a second one
-	// would render but not apply.
+	// Group is the purpose this resource serves, and what "hck list
+	// resources" sorts it under. Every resource has one — a resource with no
+	// group would simply not appear in the listing, which is the one failure
+	// nobody would notice, so TestEveryResourceHasAKnownGroup pins it.
+	Group Group
+
+	// Workload marks the resource as a chart's primary workload. A preset
+	// carries exactly one, and a chart may hold two — guarded so that one
+	// renders at a time, which is how a Deployment is swapped for a Rollout.
+	// Two rendering at once is what HCK030 reports, over the render rather
+	// than over this flag.
 	Workload bool
 }
 
-// Preset is a named set of resources used to seed a new chart.
+// Preset is a named set of resources used to seed a new chart, together with
+// the answers that set implies.
+//
+// Platform, Environment, Schema and Docs exist so that "hck init" can ask
+// three questions instead of seven. A preset written for one platform knows
+// which one, and a preset modelled on a chart that ships a values.schema.json
+// knows that too. They are defaults and not decisions: init shows what the
+// preset resolved to and lets it be changed, and every flag still overrides.
 type Preset struct {
 	Name      string
 	Summary   string
 	Resources []string
+	// Platform names the platform overlay this preset is written for, or ""
+	// when it is not tied to one.
+	Platform string
+	// Environment names the environment overlay to start with, or "".
+	Environment string
+	// Schema asks for a values.schema.json. It stays opt-in either way: what
+	// this changes is the default init offers, and the command init prints
+	// still spells --schema out.
+	Schema bool
+	// Docs asks for a values table in README.md.
+	Docs bool
 }
 
 var resources = []Resource{
 	{
 		Name:       "deployment",
+		Group:      WorkloadGroup,
 		Workload:   true,
 		File:       "deployment.yaml",
 		Summary:    "Stateless workload with probes, resources and securityContext",
@@ -61,6 +164,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "statefulset",
+		Group:      WorkloadGroup,
 		Workload:   true,
 		File:       "statefulset.yaml",
 		Summary:    "Stateful workload with volumeClaimTemplates and a headless Service",
@@ -70,6 +174,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "daemonset",
+		Group:      WorkloadGroup,
 		Workload:   true,
 		File:       "daemonset.yaml",
 		Summary:    "Node-local workload with host tolerations",
@@ -79,6 +184,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "cronjob",
+		Group:      WorkloadGroup,
 		Workload:   true,
 		File:       "cronjob.yaml",
 		Summary:    "Scheduled job with concurrency policy and history limits",
@@ -88,6 +194,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "job",
+		Group:      WorkloadGroup,
 		File:       "job.yaml",
 		Summary:    "One-shot job, optionally gated on a Helm hook",
 		APIVersion: "batch/v1",
@@ -96,6 +203,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "service",
+		Group:      ExposureGroup,
 		File:       "service.yaml",
 		Summary:    "Service, with headless mode for StatefulSet peers",
 		APIVersion: "v1",
@@ -103,6 +211,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "ingress",
+		Group:      ExposureGroup,
 		File:       "ingress.yaml",
 		Summary:    "Ingress with TLS blocks and per-path pathType",
 		APIVersion: "networking.k8s.io/v1",
@@ -111,6 +220,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "httproute",
+		Group:      ExposureGroup,
 		File:       "httproute.yaml",
 		Summary:    "Gateway API HTTPRoute — the successor to Ingress",
 		APIVersion: "gateway.networking.k8s.io/v1",
@@ -120,6 +230,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "hpa",
+		Group:      ScalingGroup,
 		File:       "hpa.yaml",
 		Summary:    "HorizontalPodAutoscaler on CPU and memory utilization",
 		APIVersion: "autoscaling/v2",
@@ -127,6 +238,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "pdb",
+		Group:      ScalingGroup,
 		File:       "pdb.yaml",
 		Summary:    "PodDisruptionBudget guarding voluntary evictions",
 		APIVersion: "policy/v1",
@@ -134,6 +246,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "networkpolicy",
+		Group:      AccessGroup,
 		File:       "networkpolicy.yaml",
 		Summary:    "Default-deny NetworkPolicy with explicit ingress and egress rules",
 		APIVersion: "networking.k8s.io/v1",
@@ -141,6 +254,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "serviceaccount",
+		Group:      AccessGroup,
 		File:       "serviceaccount.yaml",
 		Summary:    "ServiceAccount with annotations for cloud identity binding",
 		APIVersion: "v1",
@@ -148,6 +262,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "rbac",
+		Group:      AccessGroup,
 		File:       "rbac.yaml",
 		Summary:    "Role or ClusterRole plus the matching binding",
 		APIVersion: "rbac.authorization.k8s.io/v1",
@@ -156,6 +271,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "configmap",
+		Group:      ChartGroup,
 		File:       "configmap.yaml",
 		Summary:    "ConfigMap with a checksum annotation hook for rollout on change",
 		APIVersion: "v1",
@@ -163,6 +279,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "secret",
+		Group:      SecretsGroup,
 		File:       "secret.yaml",
 		Summary:    "Opaque Secret — values are stringData, never committed",
 		APIVersion: "v1",
@@ -170,6 +287,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "externalsecret",
+		Group:      SecretsGroup,
 		File:       "externalsecret.yaml",
 		Summary:    "External Secrets Operator ExternalSecret pulling from a SecretStore",
 		APIVersion: "external-secrets.io/v1",
@@ -178,6 +296,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "pvc",
+		Group:      ChartGroup,
 		File:       "pvc.yaml",
 		Summary:    "Standalone PersistentVolumeClaim with a Helm resource-policy keep",
 		APIVersion: "v1",
@@ -185,6 +304,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "servicemonitor",
+		Group:      ObservabilityGroup,
 		File:       "servicemonitor.yaml",
 		Summary:    "Prometheus Operator ServiceMonitor scrape config",
 		APIVersion: "monitoring.coreos.com/v1",
@@ -194,6 +314,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "prometheusrule",
+		Group:      ObservabilityGroup,
 		File:       "prometheusrule.yaml",
 		Summary:    "Prometheus Operator PrometheusRule alert group",
 		APIVersion: "monitoring.coreos.com/v1",
@@ -202,6 +323,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "certificate",
+		Group:      SecretsGroup,
 		File:       "certificate.yaml",
 		Summary:    "cert-manager Certificate feeding a TLS Secret",
 		APIVersion: "cert-manager.io/v1",
@@ -210,6 +332,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "podmonitor",
+		Group:      ObservabilityGroup,
 		File:       "podmonitor.yaml",
 		Summary:    "Prometheus Operator PodMonitor, scraping pods without a Service",
 		APIVersion: "monitoring.coreos.com/v1",
@@ -218,6 +341,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "scaledobject",
+		Group:      ScalingGroup,
 		File:       "scaledobject.yaml",
 		Summary:    "KEDA ScaledObject scaling on queue depth rather than CPU",
 		APIVersion: "keda.sh/v1alpha1",
@@ -226,6 +350,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "vpa",
+		Group:      ScalingGroup,
 		File:       "vpa.yaml",
 		Summary:    "VerticalPodAutoscaler sizing requests from observed usage",
 		APIVersion: "autoscaling.k8s.io/v1",
@@ -234,6 +359,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "sealedsecret",
+		Group:      SecretsGroup,
 		File:       "sealedsecret.yaml",
 		Summary:    "Sealed Secret whose ciphertext is safe to commit",
 		APIVersion: "bitnami.com/v1alpha1",
@@ -242,6 +368,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "issuer",
+		Group:      SecretsGroup,
 		File:       "issuer.yaml",
 		Summary:    "Namespaced cert-manager Issuer: ACME, CA or self-signed",
 		APIVersion: "cert-manager.io/v1",
@@ -250,6 +377,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "referencegrant",
+		Group:      ExposureGroup,
 		File:       "referencegrant.yaml",
 		Summary:    "Gateway API grant letting another namespace reach this Service",
 		APIVersion: "gateway.networking.k8s.io/v1beta1",
@@ -259,6 +387,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "scaledjob",
+		Group:      ScalingGroup,
 		File:       "scaledjob.yaml",
 		Summary:    "KEDA ScaledJob: one Job per queue item",
 		APIVersion: "keda.sh/v1alpha1",
@@ -268,6 +397,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "virtualservice",
+		Group:      MeshGroup,
 		File:       "virtualservice.yaml",
 		Summary:    "Istio VirtualService — routing for a mesh that is not using Gateway API",
 		APIVersion: "networking.istio.io/v1",
@@ -277,6 +407,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "destinationrule",
+		Group:      MeshGroup,
 		File:       "destinationrule.yaml",
 		Summary:    "Istio DestinationRule: pool limits, outlier ejection, mTLS mode",
 		APIVersion: "networking.istio.io/v1",
@@ -286,6 +417,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "authorizationpolicy",
+		Group:      MeshGroup,
 		File:       "authorizationpolicy.yaml",
 		Summary:    "Istio AuthorizationPolicy — who may call this workload, at L7",
 		APIVersion: "security.istio.io/v1",
@@ -294,6 +426,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "grafanadashboard",
+		Group:      ObservabilityGroup,
 		File:       "grafana-dashboard.yaml",
 		Summary:    "Dashboard ConfigMap the Grafana sidecar picks up",
 		APIVersion: "v1",
@@ -302,6 +435,7 @@ var resources = []Resource{
 	},
 	{
 		Name:       "tests",
+		Group:      ChartGroup,
 		File:       "tests/test-connection.yaml",
 		Summary:    "helm test hook that dials the Service",
 		APIVersion: "v1",
@@ -311,6 +445,41 @@ var resources = []Resource{
 }
 
 var presets = []Preset{
+	{
+		// The two "base" presets are modelled on a pair of house charts that
+		// an ApplicationSet repo keeps side by side: one for on-prem, one for
+		// EKS. They are the same chart answering a different platform, which
+		// is why they are two presets carrying a Platform rather than one
+		// preset and a flag to remember.
+		//
+		// Ingress and HTTPRoute both: the chart they come from guards each on
+		// its own .enabled and picks one per install, rather than choosing at
+		// build time the way "web" and "gateway" do.
+		//
+		// Not carried over, for want of a resource to carry them: a
+		// certificate-renewal CronJob, an imagePullSecret, and a
+		// PersistentVolume to match the claim.
+		Name:      "base",
+		Summary:   "On-prem house chart: Deployment, Service, Ingress or HTTPRoute, HPA, PVC, Certificate",
+		Resources: []string{"serviceaccount", "deployment", "service", "ingress", "httproute", "hpa", "pvc", "certificate", "configmap", "tests"},
+		Platform:  "onprem",
+		Schema:    true,
+		Docs:      true,
+	},
+	{
+		// Not carried over: an Argo Rollout and its AnalysisTemplate, an EFS
+		// PersistentVolume, the three extra Ingresses a preview environment
+		// wants, and a preview Service. The Rollout is the one worth naming —
+		// "hck add" no longer refuses a second workload, so a Deployment and
+		// a Rollout guarded against each other is a chart hck can hold; it
+		// has no template for the Rollout itself yet.
+		Name:      "base-aws",
+		Summary:   "EKS house chart: base on AWS, with an ExternalSecret and a PDB, no Certificate",
+		Resources: []string{"serviceaccount", "deployment", "service", "ingress", "hpa", "pdb", "externalsecret", "pvc", "configmap", "tests"},
+		Platform:  "aws",
+		Schema:    true,
+		Docs:      true,
+	},
 	{
 		Name:      "web",
 		Summary:   "HTTP service: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy",

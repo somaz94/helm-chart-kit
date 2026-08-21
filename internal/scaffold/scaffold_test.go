@@ -190,43 +190,74 @@ func TestPlanAddSkipsPresetResources(t *testing.T) {
 	}
 }
 
-func TestPlanAddRefusesASecondWorkload(t *testing.T) {
+// Adding a workload beside one already there is the Deployment-to-Rollout
+// swap, and no longer needs --force. The note counts the finished chart, so it
+// names the one already in the chart as well as the one arriving.
+func TestPlanAddNotesASecondWorkload(t *testing.T) {
 	c := newChart(t, "web") // has deployment
-	_, err := PlanAdd(c, []string{"statefulset"}, false)
-	if err == nil {
-		t.Fatal("want an error, got nil")
+	plan, err := PlanAdd(c, []string{"statefulset"}, false)
+	if err != nil {
+		t.Fatalf("want a plan, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "two") {
-		t.Fatalf("unexpected error: %v", err)
+	if !hasNote(plan, "deployment") || !hasNote(plan, "statefulset") {
+		t.Errorf("the note does not name both workloads: %v", plan.Notes)
 	}
-	if _, err := PlanAdd(c, []string{"statefulset"}, true); err != nil {
-		t.Fatalf("--force should allow it: %v", err)
+	if !plansFile(plan, "templates/statefulset.yaml") {
+		t.Errorf("statefulset was not written: %v", plan.Files)
 	}
 }
 
-// --with can name a workload on top of the one the preset brings. "hck add"
-// always refused that; "hck new" used to wave it through, which is the more
-// likely way someone reaches for a DaemonSet chart.
-func TestPlanNewRefusesTwoWorkloads(t *testing.T) {
+// Two workload templates in one chart is a shape, not a defect: guarded so
+// that one renders at a time, it is how a Deployment is swapped for a Rollout.
+// PlanNew says so and builds it; whether both actually render is HCK030's
+// question, asked over the render rather than over the resource names.
+func TestPlanNewNotesTwoWorkloadsRatherThanRefusing(t *testing.T) {
 	for _, tc := range []struct{ preset, extra string }{
 		{"web", "daemonset"},
 		{"stateful", "cronjob"},
 		{"cronjob", "deployment"},
 	} {
 		t.Run(tc.preset+"+"+tc.extra, func(t *testing.T) {
-			_, err := PlanNew(NewOptions{
+			plan, err := PlanNew(NewOptions{
 				Parent: t.TempDir(), Name: "demo", Description: "d",
 				Version: "0.1.0", AppVersion: "1.0.0", Preset: tc.preset,
 				Extra: []string{tc.extra},
 			})
-			if err == nil {
-				t.Fatal("want an error, got nil")
+			if err != nil {
+				t.Fatalf("want a plan, got %v", err)
 			}
-			if !strings.Contains(err.Error(), "primary workload") {
-				t.Errorf("unexpected error: %v", err)
+			if !hasNote(plan, "workload templates") {
+				t.Errorf("no note about the second workload: %v", plan.Notes)
+			}
+			if !hasNote(plan, "HCK030") {
+				t.Errorf("the note does not name the rule that answers it: %v", plan.Notes)
+			}
+			// The second workload is written, not quietly dropped.
+			if !plansFile(plan, "templates/"+tc.extra+".yaml") {
+				t.Errorf("%s was not written: %v", tc.extra, plan.Files)
 			}
 		})
 	}
+}
+
+// hasNote reports whether any note contains the substring.
+func hasNote(p *Plan, want string) bool {
+	for _, n := range p.Notes {
+		if strings.Contains(n, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// plansFile reports whether the plan writes that path.
+func plansFile(p *Plan, path string) bool {
+	for _, f := range p.Files {
+		if f.Path == path && f.Action != Skip {
+			return true
+		}
+	}
+	return false
 }
 
 // A workload the preset already carries is not a second one.
@@ -240,23 +271,31 @@ func TestPlanNewAllowsRedundantWith(t *testing.T) {
 	}
 }
 
-// Two workloads arriving in the same "hck add" are the same defect as one
-// arriving next to one already there. The old check returned early when the
-// chart had no workload yet, so this got through.
-func TestPlanAddRefusesTwoWorkloadsAtOnce(t *testing.T) {
+// Two arriving in one command reaches the same note as one landing beside one
+// already there — the count is over the finished chart either way.
+func TestPlanAddNotesTwoWorkloadsAtOnce(t *testing.T) {
 	c := newChart(t, "cronjob")
 	if err := os.Remove(c.TemplatePath("cronjob.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := PlanAdd(c, []string{"deployment", "daemonset"}, false)
-	if err == nil {
-		t.Fatal("want an error, got nil")
+	plan, err := PlanAdd(c, []string{"deployment", "daemonset"}, false)
+	if err != nil {
+		t.Fatalf("want a plan, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "primary workload") {
-		t.Errorf("unexpected error: %v", err)
+	if !hasNote(plan, "workload templates") {
+		t.Errorf("no note about the two workloads: %v", plan.Notes)
 	}
-	if _, err := PlanAdd(c, []string{"deployment", "daemonset"}, true); err != nil {
-		t.Fatalf("--force should allow it: %v", err)
+}
+
+// One workload is the ordinary case and says nothing at all.
+func TestPlanAddSaysNothingAboutOneWorkload(t *testing.T) {
+	c := newChart(t, "minimal")
+	plan, err := PlanAdd(c, []string{"pdb"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasNote(plan, "workload templates") {
+		t.Errorf("a chart with one workload was told about workloads: %v", plan.Notes)
 	}
 }
 
@@ -1146,6 +1185,73 @@ func planHas(p *Plan, path string, action Action) bool {
 	for _, f := range p.Files {
 		if f.Path == path {
 			return f.Action == action
+		}
+	}
+	return false
+}
+
+// "@name" stands for a group's members. This is the whole point of the
+// grouping: somebody wanting a monitoring setup asks for the setup, not for
+// three Kubernetes kinds they have to know the names of first.
+func TestResolveExpandsAGroup(t *testing.T) {
+	got, err := resolve([]string{"@observability"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, r := range got {
+		names = append(names, r.Name)
+	}
+	want := catalog.ResourcesInGroup(catalog.ObservabilityGroup)
+	if len(names) != len(want) {
+		t.Fatalf("@observability resolved to %v, want %d resources", names, len(want))
+	}
+	for _, r := range want {
+		if !containsName(names, r.Name) {
+			t.Errorf("%s is in the group and not in the expansion: %v", r.Name, names)
+		}
+	}
+}
+
+// A group beside one of its own members resolves once. Without the dedup the
+// plan would carry the same template twice and the values merge would be
+// asked for the same keys twice.
+func TestResolveDedupesAcrossAGroup(t *testing.T) {
+	got, err := resolve([]string{"@exposure", "service", "@exposure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, r := range got {
+		seen[r.Name]++
+	}
+	for name, n := range seen {
+		if n != 1 {
+			t.Errorf("%s resolved %d times", name, n)
+		}
+	}
+	if len(got) != len(catalog.ResourcesInGroup(catalog.ExposureGroup)) {
+		t.Errorf("resolved %d resources, want the group's %d", len(got), len(catalog.ResourcesInGroup(catalog.ExposureGroup)))
+	}
+}
+
+// An unknown group is an error naming the groups, not an unknown-resource
+// error naming 32 resources: the "@" says which question was being asked.
+func TestResolveRejectsAnUnknownGroup(t *testing.T) {
+	_, err := resolve([]string{"@monitoring"})
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown group") || !strings.Contains(err.Error(), "@observability") {
+		t.Errorf("the error does not say what the groups are: %v", err)
+	}
+}
+
+// containsName is slices.Contains without pulling the import in for one use.
+func containsName(haystack []string, want string) bool {
+	for _, s := range haystack {
+		if s == want {
+			return true
 		}
 	}
 	return false

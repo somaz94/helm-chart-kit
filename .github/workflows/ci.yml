@@ -143,6 +143,57 @@ jobs:
           hck add servicemonitor --chart "$chart"
           cmp /tmp/values.once "$chart/values.yaml"
 
+      # "@name" stands for a group's members. The listing is where somebody
+      # learns the groups exist, so it has to carry them, and every resource
+      # has to still be reachable through one — a resource in no group is
+      # invisible in a listing that iterates groups.
+      - name: Groups stand for their members
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new demo --dir "$workdir" --preset minimal
+          chart="$workdir/demo"
+
+          listing=$(hck list resources)
+          groups=$(printf '%s' "$listing" | awk '/^  @/ {print $1}')
+          [ -n "$groups" ] || { echo "FAIL: the listing carries no groups"; exit 1; }
+
+          # Every resource appears under exactly one group header.
+          for name in $(hck list resources | awk '/^    [a-z]/ {print $1}'); do
+            n=$(printf '%s' "$listing" | awk -v r="$name" '/^    [a-z]/ && $1 == r' | wc -l | tr -d ' ')
+            [ "$n" = "1" ] || { echo "FAIL: $name appears $n times in the listing"; exit 1; }
+          done
+
+          # Adding a group adds its members, all of them and nothing else.
+          hck add @observability --chart "$chart" >/dev/null
+          for f in servicemonitor podmonitor prometheusrule grafana-dashboard; do
+            test -f "$chart/templates/$f.yaml" || {
+              echo "FAIL: @observability did not write $f.yaml"
+              exit 1
+            }
+          done
+          hck check --chart "$chart" --strict >/dev/null
+
+          # A group beside one of its own members resolves once, and the
+          # second run writes nothing new.
+          hck new g2 --dir "$workdir" --preset minimal --with @exposure,service >/dev/null
+          hck check --chart "$workdir/g2" --strict >/dev/null
+          cp "$workdir/g2/values.yaml" /tmp/g2.before
+          hck add @exposure --chart "$workdir/g2" >/dev/null
+          cmp /tmp/g2.before "$workdir/g2/values.yaml"
+
+          # An unknown group is an error that names the groups, not one that
+          # names 32 resources.
+          set +e
+          err=$(hck add @monitoring --chart "$chart" 2>&1)
+          status=$?
+          set -e
+          [ "$status" -ne 0 ] || { echo "FAIL: an unknown group was accepted"; exit 1; }
+          [[ "$err" == *"unknown group"* ]] || { echo "FAIL: wrong error: $err"; exit 1; }
+          [[ "$err" == *"@observability"* ]] || { echo "FAIL: the error does not list the groups: $err"; exit 1; }
+          echo "PASS: groups"
+
       # A generated schema must accept the chart it was generated for, stay in
       # step as resources are added, and still reject what it claims to.
       - name: Generate and enforce values.schema.json
@@ -548,8 +599,26 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           viainit=$(mktemp -d)
-          printf 'app\nstateful\npvc\ngcp\nprod\ny\nn\n' | hck init -d "$viainit" > /tmp/init.log
+          # The long path: "n" to "Keep those?" opens the four the preset had
+          # answered, so this still exercises every question init can put.
+          printf 'app\nstateful\npvc\nn\ngcp\nprod\ny\nn\n' | hck init -d "$viainit" > /tmp/init.log
           hck check --chart "$viainit/app" --platform gcp --env prod --strict >/dev/null
+
+          # The short path: a preset that carries a platform and asks for a
+          # schema produces both without either being asked about.
+          short=$(mktemp -d)
+          printf 'house\nbase\n\n\n' | hck init -d "$short" > /tmp/short.log
+          for f in values-onprem.yaml values.schema.json README.md; do
+            test -f "$short/house/$f" || {
+              echo "FAIL: the preset decided $f and init did not write it"
+              exit 1
+            }
+          done
+          if grep -q 'Platform overlays?' /tmp/short.log; then
+            echo "FAIL: init asked a question the preset had answered"
+            exit 1
+          fi
+          hck check --chart "$short/house" --platform onprem --strict >/dev/null
 
           # Run the equivalent it printed, into a second directory.
           vianew=$(mktemp -d)
@@ -568,7 +637,7 @@ jobs:
           workdir=$(mktemp -d)
           hck new all --dir "$workdir" --preset web --schema >/dev/null
           chart="$workdir/all"
-          extra=$(hck list resources | awk '/^  [a-z]/ {print $1}' \
+          extra=$(hck list resources | awk '/^    [a-z]/ {print $1}' \
             | grep -vE '^(deployment|statefulset|daemonset|cronjob)$' | tr '\n' ' ')
           hck add $extra --chart "$chart" >/dev/null
 
@@ -590,7 +659,7 @@ jobs:
           # Unique source files, not documents: rbac.yaml alone emits a Role
           # and a RoleBinding, so counting "# Source:" lines overcounts.
           hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml --print > /tmp/all.yaml
-          want=$(hck list resources | awk '/^  [a-z]/ {print $1}' \
+          want=$(hck list resources | awk '/^    [a-z]/ {print $1}' \
             | grep -vcE '^(statefulset|daemonset|cronjob)$')
           got=$(grep '^# Source: all/templates/' /tmp/all.yaml | sort -u | wc -l | tr -d ' ')
           echo "  catalog expects $want resources, render carries $got"
@@ -638,59 +707,83 @@ jobs:
           fi
           echo "PASS: opt-in"
 
-      - name: Refuse a second workload
+      - name: Two workloads are a shape, not a refusal
         run: |
           set -euo pipefail
           export PATH="$PWD/bin:$PATH"
           workdir=$(mktemp -d)
           hck new demo --dir "$workdir"
 
-          # Adding one next to the workload already there.
-          if hck add statefulset --chart "$workdir/demo"; then
-            echo "FAIL: a second workload was accepted by hck add"
+          renders() {
+            hck check --chart "$1" --format json 2>/dev/null \
+              | jq -e 'any(.findings[]; .rule == "HCK030")' >/dev/null
+          }
+
+          # A second workload beside the one already there is built and noted.
+          # This is the Deployment-to-Rollout swap, and refusing it here
+          # answered from the resource names a question only the render can
+          # answer.
+          note=$(hck add statefulset --chart "$workdir/demo")
+          [[ "$note" == *"HCK030"* ]] || {
+            echo "FAIL: a second workload was added without a word about it"
+            exit 1
+          }
+          test -f "$workdir/demo/templates/statefulset.yaml" || {
+            echo "FAIL: the second workload was not written"
+            exit 1
+          }
+
+          # Unguarded, both render, and that is what HCK030 is for.
+          renders "$workdir/demo" || {
+            echo "FAIL: two workloads rendering was not reported"
+            exit 1
+          }
+          if hck check --chart "$workdir/demo" --strict; then
+            echo "FAIL: --strict passed a chart rendering two workloads"
             exit 1
           fi
 
-          # --with on top of the preset's own workload. This used to build the
-          # chart, and the chart it built rendered two controllers sharing one
-          # image and one updateStrategy.
-          if hck new two --dir "$workdir" --preset web --with daemonset; then
-            echo "FAIL: a second workload was accepted by hck new --with"
+          # Guard one of them and the finding goes away, because the chart now
+          # renders one. This is the whole reason the refusal became a note: a
+          # template in the chart is not a workload in the render.
+          guarded="$workdir/demo/templates/statefulset.yaml"
+          { echo '{{- if .Values.useStatefulSet }}'; cat "$guarded"; echo '{{- end }}'; } > /tmp/g
+          mv /tmp/g "$guarded"
+          if renders "$workdir/demo"; then
+            echo "FAIL: HCK030 fires over a workload that no longer renders"
             exit 1
           fi
+
+          # --with on top of the preset's own workload reaches the same place,
+          # and no longer needs --force.
+          note=$(hck new two --dir "$workdir" --preset web --with daemonset)
+          [[ "$note" == *"HCK030"* ]] || {
+            echo "FAIL: hck new --with said nothing about the second workload"
+            exit 1
+          }
+          renders "$workdir/two" || {
+            echo "FAIL: two workloads from hck new were not reported"
+            exit 1
+          }
 
           # Two arriving in the same command, into a chart that has none.
           hck new bare --dir "$workdir" --preset cronjob
           rm "$workdir/bare/templates/cronjob.yaml"
-          if hck add deployment daemonset --chart "$workdir/bare"; then
-            echo "FAIL: two workloads at once were accepted"
+          note=$(hck add deployment daemonset --chart "$workdir/bare")
+          [[ "$note" == *"HCK030"* ]] || {
+            echo "FAIL: two workloads at once said nothing"
             exit 1
-          fi
+          }
 
-          # --force is the escape hatch, and check has to report what it let
-          # through rather than the chart passing silently.
-          hck add daemonset --chart "$workdir/demo" --force
-          hck check --chart "$workdir/demo" --format json 2>/dev/null \
-            | jq -e 'any(.findings[]; .rule == "HCK030")' >/dev/null || {
-            echo "FAIL: --force let two workloads through without a finding"
+          # One workload says nothing at all — a note on every chart is a note
+          # nobody reads.
+          note=$(hck new solo --dir "$workdir" --preset minimal)
+          [[ "$note" != *"HCK030"* ]] || {
+            echo "FAIL: a chart with one workload was told about workloads"
             exit 1
           }
-          if hck check --chart "$workdir/demo" --strict; then
-            echo "FAIL: --strict passed a chart with two workloads"
-            exit 1
-          fi
 
-          # hck new has the same hatch, and the same finding survives it.
-          hck new twoforced --dir "$workdir" --preset web --with daemonset --force
-          test -f "$workdir/twoforced/templates/daemonset.yaml" || {
-            echo "FAIL: hck new --force did not write the second workload"
-            exit 1
-          }
-          hck check --chart "$workdir/twoforced" --format json 2>/dev/null \
-            | jq -e 'any(.findings[]; .rule == "HCK030")' >/dev/null || {
-            echo "FAIL: hck new --force let two workloads through without a finding"
-            exit 1
-          }
+          hck new twoforced --dir "$workdir" --preset web --with daemonset
 
           # A directory that is not empty is refused, and --force fills it in
           # rather than writing over it. Overwriting would take values.yaml
@@ -719,7 +812,7 @@ jobs:
             echo "FAIL: hck new --force rewrote values.yaml"
             exit 1
           }
-          echo "PASS: refused"
+          echo "PASS: two workloads, and a directory that is not empty"
 
   ci-result:
     name: CI Result

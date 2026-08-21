@@ -138,9 +138,17 @@ hck sync --write deployment                # take hck's version
 hck check -f values/prod.yaml --strict
 hck check --off HCK025                     # this chart wants its CPU limits
 
-# The escape hatch on what hck refuses: a second workload, or a directory
-# that is not empty. Files already there are left alone
-hck new sidecar-pair --preset web --with daemonset --force
+# Add a whole purpose at once — "@name" stands for a group's members
+hck add @observability                     # servicemonitor, rules, dashboard
+hck list resources                         # 32 resources, grouped by purpose
+
+# Two workload templates guarded so one renders at a time: built and noted,
+# not refused. HCK030 reports the chart that renders both
+hck new blue-green --preset web --with daemonset
+
+# The escape hatch: a directory that is not empty. Files already there are
+# left alone, values.yaml first among them
+hck new recovered --preset web --force
 
 # Platform overlays: only what differs on EKS / GKE / AKS / self-managed
 hck new payments-api --platform aws
@@ -174,6 +182,8 @@ The flags below are worth learning, but not on the first chart:
 $ hck init payments-api
 Chart name? [payments-api]
   presets:
+    base      On-prem house chart: Deployment, Service, Ingress or HTTPRoute, HPA, PVC, Certificate
+    base-aws  EKS house chart: base on AWS, with an ExternalSecret and a PDB, no Certificate
     cronjob   Scheduled task: CronJob, ServiceAccount, ConfigMap
     daemon    Node agent: DaemonSet on every node, no Service
     gateway   HTTP service on Gateway API: Deployment, Service, HTTPRoute, HPA, PDB
@@ -185,19 +195,26 @@ Chart name? [payments-api]
     stateful  Stateful service: StatefulSet, headless Service, PDB, NetworkPolicy
     web       HTTP service: Deployment, Service, Ingress, HPA, PDB, NetworkPolicy
     worker    Queue consumer: Deployment with no Service and no ingress path
-Preset? [web]
+Preset? [web] base
 Extra resources? (comma-separated) [none] servicemonitor
-Platform overlays? [none] aws
-Environment overlays? [none] dev,prod
-Write values.schema.json? [y/N] y
-Write a values table into README.md? [y/N] y
 
-created ./payments-api (preset web)
+  base also decided:
+    platform overlays: onprem
+    environment overlays: none
+    values.schema.json: yes
+    values table in README.md: yes
+
+Keep those? [Y/n]
+
+created ./payments-api (preset base)
 ...
 
 The same thing without the questions:
-  hck new payments-api --with servicemonitor --platform aws --env dev,prod --schema && hck docs --chart payments-api --write
+  hck new payments-api --preset base --with servicemonitor --platform onprem --schema && hck docs --chart payments-api --write
 ```
+
+Three questions, because the preset answers the other four. Answering `n` to
+the last one opens them, each seeded with what the preset chose.
 
 It prints the equivalent command because the questions are for the first
 chart and the flags are for every one after it. That equivalence is not a
