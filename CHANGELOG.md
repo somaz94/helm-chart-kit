@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.0](https://github.com/somaz94/helm-chart-kit/compare/v0.5.0...v0.6.0) (2026-08-21)
+
+### Features
+
+- check every combination a chart could be installed as ([f3eb218](https://github.com/somaz94/helm-chart-kit/commit/f3eb2182f2df105708b0d8c8901577c8f0976b46))
+
+### Contributors
+
+- somaz
+
+<br/>
+
 ## [v0.5.0](https://github.com/somaz94/helm-chart-kit/compare/v0.4.0...v0.5.0) (2026-08-21)
 
 ### Features
