@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.4.0](https://github.com/somaz94/helm-chart-kit/compare/v0.3.0...v0.4.0) (2026-08-21)
+
+### Features
+
+- give list and sync a --format json, and take the last text parser out of CI ([49577e6](https://github.com/somaz94/helm-chart-kit/commit/49577e611dcdb28d9e0c6b09859cb5613e16e873))
+- add the platform axis, and the four GKE resources an overlay could not express ([352478b](https://github.com/somaz94/helm-chart-kit/commit/352478bdda8993a1e7a9d3615f6a825b68c52c15))
+- group the catalog by purpose, add the base presets, and stop refusing a second workload ([a126c15](https://github.com/somaz94/helm-chart-kit/commit/a126c15537389d2b1308b121f12db6b14dda9859))
+
+### Documentation
+
+- bring the README preset list up to date, and pin it with a test ([533858c](https://github.com/somaz94/helm-chart-kit/commit/533858c9d0c79952a2445494243ae917169fc1f6))
+
+### Continuous Integration
+
+- assert on --format json, and fix the pipes that closed early ([9ad5b39](https://github.com/somaz94/helm-chart-kit/commit/9ad5b3933c3d511f605b93301896547a12108bb8))
+
+### Contributors
+
+- somaz
+
+<br/>
+
 ## [v0.3.0](https://github.com/somaz94/helm-chart-kit/compare/v0.2.0...v0.3.0) (2026-08-20)
 
 ### Features
