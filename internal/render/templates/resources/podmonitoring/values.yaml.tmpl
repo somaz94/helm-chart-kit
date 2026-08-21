@@ -1,0 +1,27 @@
+# =============================================================================
+# PodMonitoring (Google Managed Prometheus)
+#
+# GMP does not read a ServiceMonitor. It reads this, and it selects pods
+# directly rather than going through a Service — which is why the port is
+# named rather than numbered: the name is on the container, and a PodMonitoring
+# pointing at a name no container declares scrapes nothing and reports it only
+# in the operator's own status.
+#
+# The namespaced kind, not ClusterPodMonitoring: a chart describes its own
+# workload, and a cluster-scoped monitor installed once per release is a
+# collision waiting for the second release.
+# =============================================================================
+podMonitoring:
+  # -- Create the PodMonitoring
+  enabled: false
+  # -- Named container port to scrape. Must match a port the pod declares.
+  port: http
+  # -- Metrics path
+  path: /metrics
+  # -- Scrape interval. GMP bills by sample, so this is a cost decision as
+  # much as a resolution one.
+  interval: 30s
+  # -- Per-scrape timeout. Empty takes the interval.
+  timeout: ""
+  # -- Pod labels to copy onto every metric.
+  targetLabels: []

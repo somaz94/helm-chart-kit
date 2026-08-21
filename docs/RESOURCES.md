@@ -44,7 +44,7 @@ Three of them are shaped by what they leave out, which is the part worth reading
 
 ## Groups
 
-The catalog is 32 resources and their names are Kubernetes kinds, so an alphabetical list answers *what exists* and nothing else. Finding the three pieces of a monitoring setup meant already knowing they are called `servicemonitor`, `prometheusrule` and `grafanadashboard`.
+The catalog is 36 resources and their names are Kubernetes kinds, so an alphabetical list answers *what exists* and nothing else. Finding the three pieces of a monitoring setup meant already knowing they are called `servicemonitor`, `prometheusrule` and `grafanadashboard`.
 
 Every resource belongs to one group, and a name opening with `@` stands for the group's members:
 
@@ -56,17 +56,50 @@ hck new payments-api --with @secrets    # every way of getting a secret in
 | Group | For | Resources |
 |---|---|---|
 | `@workload` | what runs | cronjob, daemonset, deployment, job, statefulset |
-| `@exposure` | what reaches it | httproute, ingress, referencegrant, service |
+| `@exposure` | what reaches it | backendconfig, frontendconfig, httproute, ingress, referencegrant, service |
 | `@scaling` | how many, and what may evict them | hpa, pdb, scaledjob, scaledobject, vpa |
 | `@access` | identity, permissions and who may connect | networkpolicy, rbac, serviceaccount |
-| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, sealedsecret, secret |
-| `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, prometheusrule, servicemonitor |
+| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, managedcertificate, sealedsecret, secret |
+| `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, podmonitoring, prometheusrule, servicemonitor |
 | `@mesh` | Istio routing and policy | authorizationpolicy, destinationrule, virtualservice |
 | `@chart` | configuration, storage and the chart's own install test | configmap, pvc, tests |
 
 `hck list resources` prints them in this order — something runs, something reaches it, it scales, it is locked down, it is watched — which is roughly the order the decisions come in. Groups and resources are separate namespaces, kept apart by the `@`: a group and a resource may end up sharing a name, and without the prefix which one won would be decided by lookup order.
 
 A group beside one of its own members resolves once, so `--with @exposure,service` is `@exposure`.
+
+<br/>
+
+## Platform-only resources
+
+A group says what a resource is for. A platform says where it exists at all, and the two are separate questions: a GKE `ManagedCertificate` is a secrets resource that happens to be GKE-only.
+
+This is the axis an overlay cannot cover. `values-gcp.yaml` changes what an annotation says; it cannot conjure the kind the annotation names. Before these existed the gcp Ingress overlay carried the line commented out with *"provision it separately"* — a reference by name to something the chart had no way to provide, which is exactly what `HCK034` and `HCK035` are about.
+
+| Resource | Platform | Replaces | Referenced by |
+|---|---|---|---|
+| `managedcertificate` | `gcp` | `certificate` (cert-manager) | Ingress annotation |
+| `podmonitoring` | `gcp` | `servicemonitor` | nothing — selects pods directly |
+| `backendconfig` | `gcp` | — | Service annotation |
+| `frontendconfig` | `gcp` | — | Ingress annotation |
+
+Three of the four are reached by name from an annotation, so **the chart sets that annotation itself** when the resource is on, and drops it when the resource is off. Naming one that does not exist is the quiet failure here — GKE applies the annotation and falls back to a health check on `/`, or serves plaintext on port 80. `HCK038` reports it.
+
+Two rules follow from the axis:
+
+- **`HCK037`** — a chart carrying both halves of a pair. A cert-manager `Certificate` beside a `ManagedCertificate` is two certificates and one Ingress; a `ServiceMonitor` beside a `PodMonitoring` scrapes the workload twice. Same shape as `HCK031` and `HCK032`.
+- **`HCK038`** — an annotation naming a `BackendConfig` or `FrontendConfig` the chart does not render.
+
+**A group never expands to a platform-only resource.** `hck add @secrets` on an EKS chart must not put a GKE CRD in it, so the expansion leaves them out and says which:
+
+```console
+$ hck add @secrets
+  +  templates/certificate.yaml
+  ...
+  note: left out of the group because they exist on one platform only: managedcertificate (gcp) — add by name to include one
+```
+
+Named explicitly, it goes in. hck never refuses one — it cannot know what cluster the chart will be installed on.
 
 <br/>
 

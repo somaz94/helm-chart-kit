@@ -95,7 +95,7 @@ hck add <resource>... [flags]
 | `--dry-run` | `false` | 무엇을 쓸지만 출력하고 종료 |
 | `--force` | `false` | 기존 템플릿을 덮어씀 |
 
-`@`로 시작하는 이름은 그룹이고 그 구성원 전체를 뜻합니다 — `hck add @observability`는 모니터링 한 벌 전부입니다. 그룹 목록은 [RESOURCES-ko.md](RESOURCES-ko.md#그룹)와 `hck list resources`에 있습니다. 그룹을 자기 구성원과 나란히 써도 한 번만 풀립니다.
+`@`로 시작하는 이름은 그룹이고 그 구성원 전체를 뜻합니다 — `hck add @observability`는 모니터링 한 벌 전부입니다. 그룹 목록은 [RESOURCES-ko.md](RESOURCES-ko.md#그룹)와 `hck list resources`에 있습니다. 그룹을 자기 구성원과 나란히 써도 한 번만 풀립니다. 그리고 그룹은 한 플랫폼에만 있는 리소스로는 확장되지 않습니다 — 그런 리소스는 이름으로 지목해야 하고, 그룹이 무엇을 뺐는지는 알려 줍니다.
 
 ```bash
 hck add servicemonitor

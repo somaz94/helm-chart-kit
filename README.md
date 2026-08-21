@@ -48,7 +48,7 @@ updated payments-api
 
 | | `helm create` | `hck` |
 |---|---|---|
-| **Resources it can emit** | 6, fixed | 32, composable |
+| **Resources it can emit** | 6, fixed | 36, composable |
 | **Adding one to an existing chart** | — | `hck add <resource>` |
 | **`values.yaml` on add** | — | Appended, existing bytes untouched |
 | **Documented values** | Sparse | Every key carries the reason it exists |
@@ -457,6 +457,8 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK033` | warn | A scaler names a workload the chart does not render |
 | `HCK034` | warn | Chart creates an Issuer its own Certificate does not use |
 | `HCK035` | warn | A Service forwards to a container port name nothing declares |
+| `HCK037` | warn | Chart renders two resources answering the same question |
+| `HCK038` | warn | A GKE annotation names a config object the chart does not render |
 | `HCK036` | warn | A PodDisruptionBudget that never allows a voluntary disruption |
 
 Warnings pass by default; `--strict` fails on them. `hck list rules` prints the same table with the wording `hck check` uses.

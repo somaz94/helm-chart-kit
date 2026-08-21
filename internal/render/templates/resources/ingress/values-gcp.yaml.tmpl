@@ -9,8 +9,10 @@ ingress:
     # -- Reserved static IP, by name. Without one the address changes whenever
     # the ingress is recreated, and DNS goes stale.
     # kubernetes.io/ingress.global-static-ip-name: my-address
-    # -- Google-managed certificate, by name. Provision it separately; it can
-    # take up to an hour to become active.
+    # -- Google-managed certificate. "hck add managedcertificate" puts one in
+    # the chart and sets this annotation for you; the line stays here only for
+    # a certificate provisioned outside the chart. Either way it can take up
+    # to an hour to become active.
     # networking.gke.io/managed-certificates: my-certificate
     # -- Off once TLS is in place, so port 80 is not silently served.
     kubernetes.io/ingress.allow-http: "false"

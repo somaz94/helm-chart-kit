@@ -77,6 +77,22 @@ func GroupNames() []string {
 	return out
 }
 
+// PlatformResources returns the resources that only exist on one platform,
+// sorted by name. Empty platform returns nothing rather than everything: the
+// question "what is specific to nowhere" has no useful answer.
+func PlatformResources(platform string) []Resource {
+	if platform == "" {
+		return nil
+	}
+	var out []Resource
+	for _, r := range Resources() {
+		if r.Platform == platform {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // ResourcesInGroup returns the group's resources, sorted by name.
 func ResourcesInGroup(g Group) []Resource {
 	var out []Resource
@@ -112,6 +128,17 @@ type Resource struct {
 	// Optional marks a resource that depends on a CRD or feature gate the
 	// target cluster may not have (Gateway API, Prometheus Operator, ESO).
 	Optional bool
+	// Platform names the platform this resource only exists on, and "" for
+	// the ones that work anywhere. It is a second axis and not a kind of
+	// Group: a GKE ManagedCertificate is a secrets resource that happens to
+	// be GKE-only, and a single field would have to give one of those up.
+	//
+	// The values are the platform overlay names, so the two cannot drift —
+	// TestResourcePlatformsAreRealPlatforms checks it. Nothing here is
+	// enforced against the cluster: hck cannot know what the chart will be
+	// installed on, so a platform resource is reported and never refused.
+	Platform string
+
 	// Group is the purpose this resource serves, and what "hck list
 	// resources" sorts it under. Every resource has one — a resource with no
 	// group would simply not appear in the listing, which is the one failure
@@ -319,6 +346,62 @@ var resources = []Resource{
 		Summary:    "Prometheus Operator PrometheusRule alert group",
 		APIVersion: "monitoring.coreos.com/v1",
 		ValuesKeys: []string{"prometheusRule"},
+		Optional:   true,
+	},
+	{
+		// GKE's answer to the cert-manager Certificate above, and the reason
+		// this axis exists: an overlay can change what an Ingress annotation
+		// says, not conjure the kind it points at. Until this existed the gcp
+		// overlay carried the annotation commented out with "provision it
+		// separately" — a reference by name to something the chart had no way
+		// to provide, which is the failure HCK034 and HCK035 are about.
+		Name:       "managedcertificate",
+		Group:      SecretsGroup,
+		Platform:   "gcp",
+		File:       "managedcertificate.yaml",
+		Summary:    "GKE ManagedCertificate — Google provisions and renews it, no Secret involved",
+		APIVersion: "networking.gke.io/v1",
+		ValuesKeys: []string{"managedCertificate"},
+		Optional:   true,
+	},
+	{
+		// The gcp overlay has said "Google Managed Prometheus reads
+		// PodMonitoring, not ServiceMonitor" since it was written. This is
+		// that sentence made usable.
+		Name:       "podmonitoring",
+		Group:      ObservabilityGroup,
+		Platform:   "gcp",
+		File:       "podmonitoring.yaml",
+		Summary:    "Google Managed Prometheus PodMonitoring — GMP does not read a ServiceMonitor",
+		APIVersion: "monitoring.googleapis.com/v1",
+		ValuesKeys: []string{"podMonitoring"},
+		Optional:   true,
+	},
+	{
+		// Requires the Service: the annotation that wires the two together
+		// goes on the Service, so a BackendConfig in a chart without one is
+		// configuration nothing reads.
+		Name:       "backendconfig",
+		Group:      ExposureGroup,
+		Platform:   "gcp",
+		File:       "backendconfig.yaml",
+		Summary:    "GKE BackendConfig — GCLB health check, timeouts, Cloud CDN and IAP",
+		APIVersion: "cloud.google.com/v1",
+		ValuesKeys: []string{"backendConfig"},
+		Requires:   []string{"service"},
+		Optional:   true,
+	},
+	{
+		// Requires the Ingress for the same reason: the annotation lives
+		// there, and a FrontendConfig nothing references is inert.
+		Name:       "frontendconfig",
+		Group:      ExposureGroup,
+		Platform:   "gcp",
+		File:       "frontendconfig.yaml",
+		Summary:    "GKE FrontendConfig — HTTP-to-HTTPS redirection and the TLS policy",
+		APIVersion: "networking.gke.io/v1beta1",
+		ValuesKeys: []string{"frontendConfig"},
+		Requires:   []string{"ingress"},
 		Optional:   true,
 	},
 	{
@@ -615,3 +698,15 @@ func ResourceNames() []string { return names(resources) }
 
 // PresetNames returns every preset name, ordered.
 func PresetNames() []string { return names(presets) }
+
+// PlatformOnlyInGroup returns the group's resources that exist on one platform
+// only, sorted by name. Group expansion leaves these out, and reports them.
+func PlatformOnlyInGroup(g Group) []Resource {
+	var out []Resource
+	for _, r := range ResourcesInGroup(g) {
+		if r.Platform != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}

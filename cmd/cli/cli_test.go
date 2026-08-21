@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1222,15 +1223,22 @@ func TestEveryResourceRendersWhenEnabled(t *testing.T) {
 	}
 	out := mustRun(t, "check", "--chart", dir, "-f", values, "--print")
 
-	// Turning on every scaler at once is itself a finding — HPA and KEDA both
-	// driving the replica count is what HCK031 is for — so that one is
-	// expected. Anything else means a resource renders something the house
-	// rules object to.
-	if !strings.Contains(out, "HCK031") {
-		t.Error("HPA and a KEDA ScaledObject are both enabled; HCK031 should have fired")
+	// Turning everything on at once is itself two findings, and both are the
+	// point of the rule rather than a defect in a template: HPA and KEDA both
+	// driving the replica count is HCK031, and the cert-manager/GKE and
+	// ServiceMonitor/PodMonitoring pairs are HCK037. Anything else means a
+	// resource renders something the house rules object to.
+	expected := []string{"HCK031", "HCK037"}
+	for _, id := range expected {
+		if !strings.Contains(out, id) {
+			t.Errorf("everything is enabled; %s should have fired", id)
+		}
 	}
 	for _, line := range strings.Split(out, "\n") {
-		if !strings.Contains(line, "HCK0") || strings.Contains(line, "HCK031") {
+		if !strings.Contains(line, "HCK0") {
+			continue
+		}
+		if slices.ContainsFunc(expected, func(id string) bool { return strings.Contains(line, id) }) {
 			continue
 		}
 		t.Errorf("unexpected finding: %s", strings.TrimSpace(line))
@@ -1941,7 +1949,16 @@ func TestAddAcceptsAGroup(t *testing.T) {
 		t.Fatalf("hck add @observability: %v", err)
 	}
 	for _, r := range catalog.ResourcesInGroup(catalog.ObservabilityGroup) {
-		if _, err := os.Stat(filepath.Join(chartDir, "templates", r.File)); err != nil {
+		_, err := os.Stat(filepath.Join(chartDir, "templates", r.File))
+		if r.Platform != "" {
+			// A group never drags in a resource that exists on one platform
+			// only, so this one has to be absent.
+			if err == nil {
+				t.Errorf("%s is %s only and the group pulled it in", r.Name, r.Platform)
+			}
+			continue
+		}
+		if err != nil {
 			t.Errorf("%s was not written: %v", r.File, err)
 		}
 	}

@@ -95,7 +95,7 @@ hck add <resource>... [flags]
 | `--dry-run` | `false` | Print what would be written and exit |
 | `--force` | `false` | Overwrite existing templates |
 
-A name opening with `@` is a group and stands for its members — `hck add @observability` is the whole monitoring setup. The groups are in [RESOURCES.md](RESOURCES.md#groups) and in `hck list resources`. A group beside one of its own members resolves once.
+A name opening with `@` is a group and stands for its members — `hck add @observability` is the whole monitoring setup. The groups are in [RESOURCES.md](RESOURCES.md#groups) and in `hck list resources`. A group beside one of its own members resolves once, and a group never expands to a resource that exists on one platform only — those are named explicitly, and what a group left out is reported.
 
 ```bash
 hck add servicemonitor

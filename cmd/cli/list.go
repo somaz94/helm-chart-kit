@@ -60,12 +60,20 @@ func newListCmd() *cobra.Command {
 						if r.Optional {
 							mark = p.yellow(" [crd]")
 						}
+						// The platform marker comes after [crd] because it is
+						// the harder constraint: a CRD can be installed, a
+						// GKE-only kind cannot be made to exist on EKS.
+						if r.Platform != "" {
+							mark += p.yellow(" [" + r.Platform + "]")
+						}
 						fmt.Fprintf(w, "    %s\t%s\t%s%s\n", r.Name, p.dim(r.APIVersion), r.Summary, mark)
 					}
 				}
 				_ = w.Flush()
 				fprintf(out, "\n  %s needs a CRD or feature the cluster may not have\n", p.yellow("[crd]"))
 				fprintf(out, "  %s adds the whole group: hck add @observability\n", p.bold("@name"))
+				fprintf(out, "  %s exists on that platform only, and is never pulled in by a group\n",
+					p.yellow("[platform]"))
 			}
 
 			if what == "all" {

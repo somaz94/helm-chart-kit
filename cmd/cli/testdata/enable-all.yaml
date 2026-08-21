@@ -55,3 +55,11 @@ authorizationPolicy:
         - operation:
             methods: [GET]
             paths: ["/api/*"]
+# GKE-only. They render anywhere — the CRDs are the cluster's problem, not the
+# template's — so the fixture turns them on like everything else.
+managedCertificate:
+  enabled: true
+  domains: [app.example.com]
+podMonitoring: {enabled: true}
+backendConfig: {enabled: true}
+frontendConfig: {enabled: true}

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -276,6 +277,16 @@ var rules = []Rule{
 		ID: "HCK036", Severity: Warn, Scope: SetScope,
 		Summary: "a PodDisruptionBudget never allows a voluntary disruption",
 		set:     wedgedBudgetRule,
+	},
+	{
+		ID: "HCK037", Severity: Warn, Scope: SetScope,
+		Summary: "chart renders two resources answering the same question",
+		set:     competingPairsRule,
+	},
+	{
+		ID: "HCK038", Severity: Warn, Scope: SetScope,
+		Summary: "a GKE annotation names a config object the chart does not render",
+		set:     gkeConfigRefRule,
 	},
 }
 
@@ -704,4 +715,130 @@ func vpaUpdateMode(o object) string {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// competingPairsRule reports two resources that answer one question.
+//
+// The platform axis makes this reachable in a way it was not before: a chart
+// can now carry a cert-manager Certificate and a GKE ManagedCertificate, or a
+// ServiceMonitor and a PodMonitoring, and both pairs apply cleanly. Nothing
+// errors. One TLS secret is simply never used, or one scrape is billed twice
+// and the dashboards disagree about which is authoritative.
+//
+// Same shape as HCK031 and HCK032, and listed beside them for that reason:
+// two controllers with one job, chosen by whichever was reconciled last.
+func competingPairsRule(objs []object) []hit {
+	pairs := []struct{ a, b, why string }{
+		{"Certificate", "ManagedCertificate",
+			"both terminate TLS for this chart, and only the one the Ingress references is used — the other is a certificate nobody serves"},
+		{"ServiceMonitor", "PodMonitoring",
+			"Prometheus Operator reads the first and Google Managed Prometheus the second; a cluster running both scrapes the workload twice"},
+	}
+	var out []hit
+	for _, p := range pairs {
+		as, bs := namesOfKind(objs, p.a), namesOfKind(objs, p.b)
+		if len(as) == 0 || len(bs) == 0 {
+			continue
+		}
+		out = append(out, hit{Where: "chart", Message: fmt.Sprintf(
+			"chart renders both a %s (%s) and a %s (%s); %s",
+			p.a, strings.Join(as, ", "), p.b, strings.Join(bs, ", "), p.why)})
+	}
+	return out
+}
+
+// gkeConfigRefRule reports a GKE annotation naming a BackendConfig or
+// FrontendConfig the chart does not render.
+//
+// These are referenced by name and by nothing else, so a name that resolves to
+// nothing is the quiet failure this file keeps coming back to: everything
+// applies, and GKE falls back to a health check on "/" or serves plaintext on
+// port 80. The chart renders, installs, and is wrong in a way only the load
+// balancer knows about.
+//
+// Says nothing when the chart renders no object of that kind AND sets no such
+// annotation — and nothing at all about a name pointing outside the chart is
+// impossible to distinguish from a typo, so this reports only what it can see.
+func gkeConfigRefRule(objs []object) []hit {
+	present := map[string]map[string]bool{
+		"BackendConfig":  {},
+		"FrontendConfig": {},
+	}
+	for _, o := range objs {
+		if set, ok := present[o.Kind]; ok {
+			set[o.Name] = true
+		}
+	}
+	refs := []struct{ annotation, kind string }{
+		{"cloud.google.com/backend-config", "BackendConfig"},
+		{"networking.gke.io/v1beta1.FrontendConfig", "FrontendConfig"},
+	}
+	var out []hit
+	for _, o := range objs {
+		annotations, _ := o.Metadata["annotations"].(map[string]any)
+		for _, r := range refs {
+			raw, ok := annotations[r.annotation].(string)
+			if !ok || raw == "" {
+				continue
+			}
+			for _, name := range gkeRefNames(raw) {
+				if present[r.kind][name] {
+					continue
+				}
+				have := "none"
+				if n := sortedKeys(present[r.kind]); len(n) > 0 {
+					have = strings.Join(n, ", ")
+				}
+				out = append(out, hit{
+					Where: o.Kind + "/" + o.Name,
+					Message: fmt.Sprintf(
+						"%s names %s %q, which this chart does not render (it renders: %s). The annotation applies and GKE silently falls back to its own defaults",
+						r.annotation, r.kind, name, have),
+				})
+			}
+		}
+	}
+	return out
+}
+
+// gkeRefNames pulls the names out of a backend-config annotation, which is
+// JSON ({"default":"x"} or {"ports":{"80":"x"}}), and out of a FrontendConfig
+// annotation, which is a bare name.
+func gkeRefNames(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "{") {
+		return []string{raw}
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		// Unparseable is not the same as dangling, and guessing at it would
+		// report a name nobody wrote.
+		return nil
+	}
+	var out []string
+	for _, v := range doc {
+		switch t := v.(type) {
+		case string:
+			out = append(out, t)
+		case map[string]any:
+			for _, vv := range t {
+				if name, ok := vv.(string); ok {
+					out = append(out, name)
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// sortedKeys is the set as a sorted slice, for a message that has to be the
+// same on every run.
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
 }

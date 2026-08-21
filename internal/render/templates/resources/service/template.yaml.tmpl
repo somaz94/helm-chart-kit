@@ -4,7 +4,16 @@ metadata:
   name: {{ include "[[ .ChartName ]].fullname" . }}
   labels:
     {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
-  {{- with .Values.service.annotations }}
+  {{- /* Wired here for the same reason as the Ingress annotations: GKE reads
+         the BackendConfig off the Service by name, and a name nothing
+         provides makes GCLB fall back to a health check on "/". */}}
+  {{- $gke := dict }}
+  {{- if (.Values.backendConfig).enabled }}
+  {{- $ref := dict "default" (include "[[ .ChartName ]].fullname" .) }}
+  {{- $_ := set $gke "cloud.google.com/backend-config" (toJson $ref) }}
+  {{- end }}
+  {{- $annotations := merge (dict) $gke .Values.service.annotations }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}

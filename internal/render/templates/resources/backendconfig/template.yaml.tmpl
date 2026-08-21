@@ -1,0 +1,39 @@
+{{- if .Values.backendConfig.enabled -}}
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  {{- with .Values.backendConfig.timeoutSec }}
+  timeoutSec: {{ . }}
+  {{- end }}
+  {{- with .Values.backendConfig.connectionDraining }}
+  connectionDraining:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  healthCheck:
+    type: {{ .Values.backendConfig.healthCheck.type }}
+    requestPath: {{ .Values.backendConfig.healthCheck.requestPath }}
+    {{- /* The port is the container's, not the Service's: the GCLB health
+           check talks to the NEG endpoint directly. Reading it off the
+           workload keeps it from drifting when containerPort changes. */}}
+    port: {{ .Values.backendConfig.healthCheck.port | default (.Values.containerPort) }}
+    checkIntervalSec: {{ .Values.backendConfig.healthCheck.checkIntervalSec }}
+    timeoutSec: {{ .Values.backendConfig.healthCheck.timeoutSec }}
+    healthyThreshold: {{ .Values.backendConfig.healthCheck.healthyThreshold }}
+    unhealthyThreshold: {{ .Values.backendConfig.healthCheck.unhealthyThreshold }}
+  {{- if .Values.backendConfig.cdn.enabled }}
+  cdn:
+    {{- toYaml .Values.backendConfig.cdn | nindent 4 }}
+  {{- end }}
+  {{- if .Values.backendConfig.iap.enabled }}
+  iap:
+    {{- toYaml .Values.backendConfig.iap | nindent 4 }}
+  {{- end }}
+  {{- with .Values.backendConfig.securityPolicy }}
+  securityPolicy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

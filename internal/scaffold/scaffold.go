@@ -144,6 +144,7 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	// brings. That is worth saying out loud and not worth refusing: see
 	// noteTwoWorkloads.
 	workloadNote := noteTwoWorkloads(resources, nil)
+	skipNote := groupSkipNote(append(append([]string{}, preset.Resources...), opts.Extra...))
 
 	dir, err := filepath.Abs(filepath.Join(opts.Parent, opts.Name))
 	if err != nil {
@@ -170,6 +171,9 @@ func PlanNew(opts NewOptions) (*Plan, error) {
 	plan := &Plan{ChartDir: dir}
 	if workloadNote != "" {
 		plan.Notes = append(plan.Notes, workloadNote)
+	}
+	if skipNote != "" {
+		plan.Notes = append(plan.Notes, skipNote)
 	}
 
 	skeleton, err := render.ChartFiles()
@@ -294,6 +298,9 @@ func PlanAdd(c *chart.Chart, requested []string, force bool) (*Plan, error) {
 	}
 	plan := &Plan{ChartDir: c.Dir}
 	if note := noteTwoWorkloads(resources, existingTemplates); note != "" {
+		plan.Notes = append(plan.Notes, note)
+	}
+	if note := groupSkipNote(requested); note != "" {
 		plan.Notes = append(plan.Notes, note)
 	}
 	present := presentResources(existingTemplates)
@@ -478,7 +485,11 @@ func resolve(requested []string) ([]catalog.Resource, error) {
 					name, strings.Join(catalog.GroupNames(), ", @"))
 			}
 			for _, r := range catalog.ResourcesInGroup(g) {
-				if seen[r.Name] {
+				// A group never drags in a resource that only exists on one
+				// platform: "hck add @secrets" on an EKS chart must not put a
+				// GKE CRD in it. They are named explicitly, and skipped ones
+				// are reported by groupSkipNote rather than silently dropped.
+				if r.Platform != "" || seen[r.Name] {
 					continue
 				}
 				seen[r.Name] = true
@@ -500,6 +511,45 @@ func resolve(requested []string) ([]catalog.Resource, error) {
 		return nil, errors.New("no resources requested")
 	}
 	return out, nil
+}
+
+// groupSkipNote names the platform-specific resources that a requested group
+// stands for but does not expand to, and returns "" when there are none.
+//
+// Silence here would be the wrong kind: "hck add @secrets" quietly leaving a
+// ManagedCertificate out reads as the group being smaller than it is, and the
+// resource is then unreachable for anybody who did not go and read the
+// listing. Named explicitly, it still goes in.
+func groupSkipNote(requested []string) string {
+	named := map[string]bool{}
+	for _, name := range requested {
+		named[name] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, name := range requested {
+		group, ok := strings.CutPrefix(name, "@")
+		if !ok {
+			continue
+		}
+		g, ok := catalog.LookupGroup(group)
+		if !ok {
+			continue
+		}
+		for _, r := range catalog.PlatformOnlyInGroup(g) {
+			if named[r.Name] || seen[r.Name] {
+				continue
+			}
+			seen[r.Name] = true
+			out = append(out, fmt.Sprintf("%s (%s)", r.Name, r.Platform))
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"left out of the group because they exist on one platform only: %s — add by name to include one",
+		strings.Join(out, ", "))
 }
 
 // noteTwoWorkloads describes a chart that would end up carrying more than one

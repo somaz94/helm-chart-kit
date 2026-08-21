@@ -1,0 +1,44 @@
+# =============================================================================
+# BackendConfig (GKE)
+#
+# Everything GCLB does behind the Ingress that the Ingress spec has no field
+# for: how the health check is shaped, how long a request may take, whether
+# Cloud CDN and IAP are on.
+#
+# The Service reaches it by name through the cloud.google.com/backend-config
+# annotation, which the chart sets for you. Naming one that does not exist is
+# the quiet failure here — GKE falls back to a health check on / and the
+# backend goes unhealthy for a workload that never served /.
+# =============================================================================
+backendConfig:
+  # -- Create the BackendConfig
+  enabled: false
+  # -- Seconds a request may take before the load balancer gives up. Raise it
+  # for streaming or long uploads; the default drops a 30s request.
+  timeoutSec: 30
+  # -- How long to keep draining connections on a backend being removed.
+  connectionDraining:
+    drainingTimeoutSec: 60
+  healthCheck:
+    # -- HTTP, HTTPS or HTTP2
+    type: HTTP
+    # -- Path the check requests. Point it at a real readiness endpoint: the
+    # GCLB check is separate from the Kubernetes probe and does not read it.
+    requestPath: /healthz
+    # -- Container port to check. Empty uses containerPort.
+    port: ""
+    checkIntervalSec: 15
+    timeoutSec: 5
+    healthyThreshold: 1
+    unhealthyThreshold: 2
+  # -- Cloud CDN in front of this backend.
+  cdn:
+    enabled: false
+  # -- Identity-Aware Proxy. The OAuth client secret must already exist as a
+  # Secret in this namespace; the chart never creates it.
+  iap:
+    enabled: false
+    oauthclientCredentials:
+      secretName: ""
+  # -- Cloud Armor policy, by name. Provisioned outside the cluster.
+  securityPolicy: {}

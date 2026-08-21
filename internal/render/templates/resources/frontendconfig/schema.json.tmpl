@@ -1,0 +1,28 @@
+{
+  "frontendConfig": {
+    "type": "object",
+    "description": "GKE FrontendConfig. HTTP-to-HTTPS redirection and the TLS policy in front of the GCLB. The Ingress references it by name.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the FrontendConfig"
+      },
+      "redirectToHttps": {
+        "type": "object",
+        "description": "Redirect HTTP to HTTPS at the load balancer",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "responseCodeName": {
+            "type": "string",
+            "enum": ["MOVED_PERMANENTLY_DEFAULT", "FOUND", "SEE_OTHER", "TEMPORARY_REDIRECT", "PERMANENT_REDIRECT"],
+            "description": "301 by default, which browsers cache"
+          }
+        }
+      },
+      "sslPolicy": {
+        "type": "string",
+        "description": "SSL policy, by name. Empty takes the Google default, which still permits TLS 1.0."
+      }
+    }
+  }
+}

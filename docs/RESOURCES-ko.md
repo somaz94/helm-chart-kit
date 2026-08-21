@@ -44,7 +44,7 @@
 
 ## 그룹
 
-카탈로그는 리소스 32개이고 이름은 전부 Kubernetes 종류(kind)입니다. 그래서 알파벳 목록은 *무엇이 있는가*만 답하고 그 이상은 답하지 못합니다. 모니터링 한 벌을 찾으려면 그게 `servicemonitor`, `prometheusrule`, `grafanadashboard`라고 불린다는 걸 이미 알고 있어야 했습니다.
+카탈로그는 리소스 36개이고 이름은 전부 Kubernetes 종류(kind)입니다. 그래서 알파벳 목록은 *무엇이 있는가*만 답하고 그 이상은 답하지 못합니다. 모니터링 한 벌을 찾으려면 그게 `servicemonitor`, `prometheusrule`, `grafanadashboard`라고 불린다는 걸 이미 알고 있어야 했습니다.
 
 모든 리소스는 그룹 하나에 속하고, `@`로 시작하는 이름은 그 그룹의 구성원 전체를 뜻합니다.
 
@@ -56,17 +56,50 @@ hck new payments-api --with @secrets    # every way of getting a secret in
 | Group | For | Resources |
 |---|---|---|
 | `@workload` | what runs | cronjob, daemonset, deployment, job, statefulset |
-| `@exposure` | what reaches it | httproute, ingress, referencegrant, service |
+| `@exposure` | what reaches it | backendconfig, frontendconfig, httproute, ingress, referencegrant, service |
 | `@scaling` | how many, and what may evict them | hpa, pdb, scaledjob, scaledobject, vpa |
 | `@access` | identity, permissions and who may connect | networkpolicy, rbac, serviceaccount |
-| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, sealedsecret, secret |
-| `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, prometheusrule, servicemonitor |
+| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, managedcertificate, sealedsecret, secret |
+| `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, podmonitoring, prometheusrule, servicemonitor |
 | `@mesh` | Istio routing and policy | authorizationpolicy, destinationrule, virtualservice |
 | `@chart` | configuration, storage and the chart's own install test | configmap, pvc, tests |
 
 `hck list resources`는 이 순서로 출력합니다 — 무언가 돌고, 무언가 그것에 닿고, 스케일되고, 잠기고, 관측된다 — 대체로 결정이 내려지는 순서입니다. 그룹과 리소스는 서로 다른 이름 공간이고 `@`가 그 둘을 갈라 놓습니다. 나중에 그룹과 리소스가 같은 이름을 갖게 될 수 있는데, 접두사가 없으면 어느 쪽이 이기는지를 조회 순서가 정하게 됩니다.
 
 그룹을 자기 구성원과 나란히 써도 한 번만 풀립니다. `--with @exposure,service`는 `@exposure`와 같습니다.
+
+<br/>
+
+## 플랫폼 전용 리소스
+
+그룹은 리소스가 **무엇을 위한 것인지** 말하고, 플랫폼은 **애초에 어디에 존재하는지**를 말합니다. 서로 다른 질문입니다 — GKE `ManagedCertificate`는 secrets 리소스이면서 동시에 GKE에만 있는 것이니까요.
+
+오버레이로는 덮을 수 없는 축입니다. `values-gcp.yaml`은 어노테이션이 **뭐라고 말하는지**를 바꿀 뿐, 그 어노테이션이 가리키는 kind를 만들어 낼 수는 없습니다. 이 리소스들이 생기기 전까지 gcp Ingress 오버레이는 그 줄을 *"provision it separately"*라는 주석과 함께 달고 있었습니다 — 차트가 제공할 방법이 없는 것을 이름으로 참조하는, 정확히 `HCK034`·`HCK035`가 다루는 그 형태였습니다.
+
+| Resource | Platform | Replaces | Referenced by |
+|---|---|---|---|
+| `managedcertificate` | `gcp` | `certificate` (cert-manager) | Ingress annotation |
+| `podmonitoring` | `gcp` | `servicemonitor` | nothing — selects pods directly |
+| `backendconfig` | `gcp` | — | Service annotation |
+| `frontendconfig` | `gcp` | — | Ingress annotation |
+
+넷 중 셋은 어노테이션을 통해 이름으로 참조되므로, 리소스가 켜지면 **차트가 그 어노테이션을 직접 답니다.** 꺼지면 같이 사라집니다. 없는 것을 이름으로 가리키는 게 여기서의 조용한 실패입니다 — GKE는 어노테이션을 그대로 적용하고 `/`에 대한 헬스체크로 되돌아가거나, 80 포트로 평문을 서빙합니다. `HCK038`이 이걸 보고합니다.
+
+이 축에서 규칙 두 개가 따라 나옵니다.
+
+- **`HCK037`** — 한 쌍의 양쪽을 다 들고 있는 차트. cert-manager `Certificate` 옆의 `ManagedCertificate`는 인증서 둘에 Ingress 하나이고, `ServiceMonitor` 옆의 `PodMonitoring`은 같은 워크로드를 두 번 스크레이프합니다. `HCK031`·`HCK032`와 같은 형태입니다.
+- **`HCK038`** — 차트가 렌더하지 않는 `BackendConfig`나 `FrontendConfig`를 이름으로 가리키는 어노테이션.
+
+**그룹은 플랫폼 전용 리소스로 절대 확장되지 않습니다.** EKS 차트에 `hck add @secrets`가 GKE CRD를 넣으면 안 되니, 확장에서 빼고 무엇을 뺐는지 말해 줍니다.
+
+```console
+$ hck add @secrets
+  +  templates/certificate.yaml
+  ...
+  note: left out of the group because they exist on one platform only: managedcertificate (gcp) — add by name to include one
+```
+
+이름으로 지목하면 들어갑니다. hck는 거부하지 않습니다 — 이 차트가 어느 클러스터에 설치될지 알 수 없으니까요.
 
 <br/>
 

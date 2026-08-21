@@ -773,3 +773,116 @@ func TestWedgedBudgetIsReported(t *testing.T) {
 		}
 	})
 }
+
+// Two resources answering one question apply cleanly and disagree quietly,
+// which is why this is a finding rather than something helm would catch.
+func TestCompetingPairsRule(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		manifests  string
+		wantFiring bool
+	}{
+		{"cert-manager and GKE", `
+kind: Certificate
+metadata: {name: a}
+---
+kind: ManagedCertificate
+metadata: {name: a}
+`, true},
+		{"both monitors", `
+kind: ServiceMonitor
+metadata: {name: a}
+---
+kind: PodMonitoring
+metadata: {name: a}
+`, true},
+		{"one of each pair is fine", `
+kind: Certificate
+metadata: {name: a}
+---
+kind: PodMonitoring
+metadata: {name: a}
+`, false},
+		{"neither says nothing", `
+kind: Deployment
+metadata: {name: a}
+`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs, err := decodeAll(tc.manifests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := competingPairsRule(objs)
+			if firing := len(got) > 0; firing != tc.wantFiring {
+				t.Errorf("fired=%v want %v: %v", firing, tc.wantFiring, got)
+			}
+		})
+	}
+}
+
+// The GKE config objects are referenced by name and by nothing else, so a name
+// that resolves to nothing is invisible until the load balancer misbehaves.
+func TestGKEConfigRefRule(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		manifests  string
+		wantFiring bool
+	}{
+		{"backend-config names nothing", `
+kind: Service
+metadata:
+  name: a
+  annotations:
+    cloud.google.com/backend-config: '{"default":"missing"}'
+`, true},
+		{"frontend-config names nothing", `
+kind: Ingress
+metadata:
+  name: a
+  annotations:
+    networking.gke.io/v1beta1.FrontendConfig: missing
+`, true},
+		{"the chart renders what it names", `
+kind: Service
+metadata:
+  name: a
+  annotations:
+    cloud.google.com/backend-config: '{"default":"a"}'
+---
+kind: BackendConfig
+metadata: {name: a}
+`, false},
+		{"no annotation says nothing", `
+kind: Service
+metadata: {name: a}
+`, false},
+		// Unparseable is not the same as dangling: reporting it would name a
+		// string nobody wrote as if it were a missing object.
+		{"unparseable JSON is not a finding", `
+kind: Service
+metadata:
+  name: a
+  annotations:
+    cloud.google.com/backend-config: '{not json'
+`, false},
+		{"the ports form is read too", `
+kind: Service
+metadata:
+  name: a
+  annotations:
+    cloud.google.com/backend-config: '{"ports":{"80":"missing"}}'
+`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs, err := decodeAll(tc.manifests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := gkeConfigRefRule(objs)
+			if firing := len(got) > 0; firing != tc.wantFiring {
+				t.Errorf("fired=%v want %v: %v", firing, tc.wantFiring, got)
+			}
+		})
+	}
+}

@@ -1202,7 +1202,7 @@ func TestResolveExpandsAGroup(t *testing.T) {
 	for _, r := range got {
 		names = append(names, r.Name)
 	}
-	want := catalog.ResourcesInGroup(catalog.ObservabilityGroup)
+	want := neutral(catalog.ResourcesInGroup(catalog.ObservabilityGroup))
 	if len(names) != len(want) {
 		t.Fatalf("@observability resolved to %v, want %d resources", names, len(want))
 	}
@@ -1230,8 +1230,9 @@ func TestResolveDedupesAcrossAGroup(t *testing.T) {
 			t.Errorf("%s resolved %d times", name, n)
 		}
 	}
-	if len(got) != len(catalog.ResourcesInGroup(catalog.ExposureGroup)) {
-		t.Errorf("resolved %d resources, want the group's %d", len(got), len(catalog.ResourcesInGroup(catalog.ExposureGroup)))
+	want := neutral(catalog.ResourcesInGroup(catalog.ExposureGroup))
+	if len(got) != len(want) {
+		t.Errorf("resolved %d resources, want the group's %d platform-neutral ones", len(got), len(want))
 	}
 }
 
@@ -1255,4 +1256,59 @@ func containsName(haystack []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// A group never drags in a resource that only exists on one platform: "hck
+// add @secrets" on an EKS chart must not put a GKE CRD in it.
+func TestResolveLeavesPlatformResourcesOutOfAGroup(t *testing.T) {
+	got, err := resolve([]string{"@secrets"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range got {
+		if r.Platform != "" {
+			t.Errorf("@secrets expanded to %q, which is %s only", r.Name, r.Platform)
+		}
+	}
+	// It is left out, not made unreachable: named explicitly it still goes in.
+	named, err := resolve([]string{"managedcertificate"})
+	if err != nil {
+		t.Fatalf("naming it explicitly failed: %v", err)
+	}
+	if len(named) != 1 || named[0].Name != "managedcertificate" {
+		t.Errorf("naming it explicitly resolved to %v", named)
+	}
+}
+
+// And what a group left out is reported, because silently expanding to less
+// than the listing shows reads as the group being smaller than it is.
+func TestGroupSkipNote(t *testing.T) {
+	note := groupSkipNote([]string{"@secrets"})
+	if !strings.Contains(note, "managedcertificate") || !strings.Contains(note, "gcp") {
+		t.Errorf("the note does not name what was left out: %q", note)
+	}
+	// Named explicitly, there is nothing to report.
+	if note := groupSkipNote([]string{"@secrets", "managedcertificate"}); note != "" {
+		t.Errorf("named explicitly and still reported as skipped: %q", note)
+	}
+	// A group with no platform resources says nothing at all.
+	if note := groupSkipNote([]string{"@access"}); note != "" {
+		t.Errorf("@access has no platform resources but reported: %q", note)
+	}
+	// And a plain resource name is not a group.
+	if note := groupSkipNote([]string{"secret", "pdb"}); note != "" {
+		t.Errorf("plain names reported a group skip: %q", note)
+	}
+}
+
+// neutral drops the platform-specific members, which group expansion never
+// reaches.
+func neutral(rs []catalog.Resource) []catalog.Resource {
+	var out []catalog.Resource
+	for _, r := range rs {
+		if r.Platform == "" {
+			out = append(out, r)
+		}
+	}
+	return out
 }

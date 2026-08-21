@@ -1,0 +1,20 @@
+# =============================================================================
+# ManagedCertificate (GKE)
+#
+# Google provisions and renews the certificate; there is no Secret and nothing
+# to mount. The Ingress reaches it by name through the
+# networking.gke.io/managed-certificates annotation, which is why turning this
+# on also sets that annotation rather than leaving it to be remembered.
+#
+# GKE only, and only behind a GCE Ingress: an ingress-nginx class ignores the
+# annotation and serves the default certificate without saying so.
+# =============================================================================
+managedCertificate:
+  # -- Create the ManagedCertificate
+  enabled: false
+  # -- Domains on the certificate, at most 100. Left empty, the chart uses the
+  # hosts its own Ingress already serves.
+  #
+  # Every domain has to resolve to the load balancer before Google will issue,
+  # and provisioning stops at the first one that does not.
+  domains: []

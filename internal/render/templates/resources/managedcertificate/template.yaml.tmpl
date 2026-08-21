@@ -1,0 +1,22 @@
+{{- if .Values.managedCertificate.enabled -}}
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  domains:
+    {{- if .Values.managedCertificate.domains }}
+    {{- toYaml .Values.managedCertificate.domains | nindent 4 }}
+    {{- else }}
+    {{- /* Fall back to whatever the chart already routes, the same way the
+           cert-manager Certificate does, so the two cannot drift apart. A
+           GCLB certificate takes up to an hour to provision, and pointing it
+           at a hostname the Ingress does not serve wastes that hour without
+           reporting anything. */}}
+    {{- range (.Values.ingress).hosts }}
+    - {{ .host }}
+    {{- end }}
+    {{- end }}
+{{- end }}

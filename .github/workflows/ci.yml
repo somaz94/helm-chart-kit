@@ -194,6 +194,83 @@ jobs:
           [[ "$err" == *"@observability"* ]] || { echo "FAIL: the error does not list the groups: $err"; exit 1; }
           echo "PASS: groups"
 
+      # A platform resource is a kind that only exists on one cloud, which an
+      # overlay cannot express: an overlay changes what an annotation says, it
+      # cannot conjure the object the annotation names. The wiring is the part
+      # worth guarding — the chart has to set the annotation itself, or the
+      # values comment saying it does is the only thing that does.
+      - name: Platform-only resources and their wiring
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new gke --dir "$workdir" --preset web \
+            --with managedcertificate,backendconfig,frontendconfig,podmonitoring >/dev/null
+          chart="$workdir/gke"
+          printf 'image: {tag: "1.0.0"}\ningress: {enabled: true}\nmanagedCertificate: {enabled: true}\nbackendConfig: {enabled: true}\nfrontendConfig: {enabled: true}\n' > "$workdir/on.yaml"
+
+          # The listing marks them, which is where anybody learns they exist.
+          # Captured, not piped into grep -q: that closes the pipe on its first
+          # match and pipefail then fails the step for a passing assertion.
+          listing=$(hck list resources)
+          [[ "$listing" == *"managedcertificate"*"[gcp]"* ]] || {
+            echo "FAIL: the listing does not mark managedcertificate as gcp-only"
+            exit 1
+          }
+
+          # A group never pulls one in, and says which it left out.
+          hck new plain --dir "$workdir" --preset minimal >/dev/null
+          note=$(hck add @secrets --chart "$workdir/plain")
+          test -f "$workdir/plain/templates/managedcertificate.yaml" && {
+            echo "FAIL: @secrets pulled in a gcp-only resource"
+            exit 1
+          }
+          [[ "$note" == *"managedcertificate (gcp)"* ]] || {
+            echo "FAIL: the group did not report what it left out"
+            exit 1
+          }
+          # Named explicitly it still goes in.
+          hck add managedcertificate --chart "$workdir/plain" >/dev/null
+          test -f "$workdir/plain/templates/managedcertificate.yaml" || {
+            echo "FAIL: naming it explicitly did not add it"
+            exit 1
+          }
+
+          # The chart wires the annotations itself. Each is referenced by name
+          # and by nothing else, so this is the whole contract.
+          rendered=$(hck check --chart "$chart" -f "$workdir/on.yaml" --print)
+          for a in 'networking.gke.io/managed-certificates: gke' \
+                   'networking.gke.io/v1beta1.FrontendConfig: gke' \
+                   'cloud.google.com/backend-config'; do
+            [[ "$rendered" == *"$a"* ]] || { echo "FAIL: $a was not wired"; exit 1; }
+          done
+
+          # And they vanish when the resource is off, rather than naming an
+          # object the chart no longer renders.
+          printf 'image: {tag: "1.0.0"}\ningress: {enabled: true}\n' > "$workdir/off.yaml"
+          off=$(hck check --chart "$chart" -f "$workdir/off.yaml" --print)
+          for a in 'managed-certificates' 'FrontendConfig' 'backend-config'; do
+            [[ "$off" != *"$a"* ]] || { echo "FAIL: $a survived the resource being off"; exit 1; }
+          done
+
+          # HCK038: an annotation naming something the chart does not render.
+          printf 'image: {tag: "1.0.0"}\ningress: {enabled: true, annotations: {"networking.gke.io/v1beta1.FrontendConfig": "nope"}}\n' > "$workdir/dangling.yaml"
+          hck check --chart "$chart" -f "$workdir/dangling.yaml" --format json 2>/dev/null \
+            | jq -e 'any(.findings[]; .rule == "HCK038")' >/dev/null || {
+            echo "FAIL: a dangling FrontendConfig reference was not reported"
+            exit 1
+          }
+
+          # HCK037: two resources answering one question.
+          printf 'image: {tag: "1.0.0"}\ncertificate: {enabled: true}\nmanagedCertificate: {enabled: true}\n' > "$workdir/both.yaml"
+          hck add certificate --chart "$chart" >/dev/null
+          hck check --chart "$chart" -f "$workdir/both.yaml" --format json 2>/dev/null \
+            | jq -e 'any(.findings[]; .rule == "HCK037")' >/dev/null || {
+            echo "FAIL: a cert-manager Certificate beside a ManagedCertificate was not reported"
+            exit 1
+          }
+          echo "PASS: platform resources"
+
       # A generated schema must accept the chart it was generated for, stay in
       # step as resources are added, and still reject what it claims to.
       - name: Generate and enforce values.schema.json
@@ -641,14 +718,20 @@ jobs:
             | grep -vE '^(deployment|statefulset|daemonset|cronjob)$' | tr '\n' ' ')
           hck add $extra --chart "$chart" >/dev/null
 
-          # HCK031 is expected: HPA and KEDA both scale the workload here.
+          # Two findings are expected here, and both are the rule working
+          # rather than a template misbehaving: HCK031 because HPA and KEDA
+          # both scale this workload, HCK037 because turning everything on
+          # necessarily turns on both halves of a competing pair — the
+          # cert-manager Certificate beside the GKE ManagedCertificate, and
+          # the ServiceMonitor beside the PodMonitoring.
+          #
           # Read as JSON so that the set of rules that fired is the assertion,
           # rather than whatever the text report happens to word them as.
           hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml \
             --format json > /tmp/all.json 2>/dev/null || true
-          fired=$(jq -r '[.findings[].rule] | unique | join(",")' /tmp/all.json)
-          if [ "$fired" != "HCK031" ]; then
-            echo "FAIL: expected HCK031 and nothing else, got: ${fired:-none}"
+          fired=$(jq -r '[.findings[].rule] | unique | sort | join(",")' /tmp/all.json)
+          if [ "$fired" != "HCK031,HCK037" ]; then
+            echo "FAIL: expected HCK031,HCK037 and nothing else, got: ${fired:-none}"
             jq '.findings' /tmp/all.json
             exit 1
           fi

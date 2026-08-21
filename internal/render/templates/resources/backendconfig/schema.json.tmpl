@@ -1,0 +1,52 @@
+{
+  "backendConfig": {
+    "type": "object",
+    "description": "GKE BackendConfig. Shapes the GCLB health check, timeouts, Cloud CDN and IAP behind the Ingress. The Service references it by name.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the BackendConfig"
+      },
+      "timeoutSec": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Seconds a request may take before the load balancer gives up"
+      },
+      "connectionDraining": {
+        "type": "object",
+        "description": "How long to keep draining connections on a backend being removed"
+      },
+      "healthCheck": {
+        "type": "object",
+        "description": "GCLB health check, which is separate from the Kubernetes probe",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["HTTP", "HTTPS", "HTTP2"],
+            "description": "HTTP, HTTPS or HTTP2"
+          },
+          "requestPath": {
+            "type": "string",
+            "description": "Path the check requests"
+          },
+          "port": {
+            "type": ["string", "integer"],
+            "description": "Container port to check. Empty uses containerPort."
+          }
+        }
+      },
+      "cdn": {
+        "type": "object",
+        "description": "Cloud CDN in front of this backend"
+      },
+      "iap": {
+        "type": "object",
+        "description": "Identity-Aware Proxy. The OAuth client secret must already exist in this namespace."
+      },
+      "securityPolicy": {
+        "type": "object",
+        "description": "Cloud Armor policy, by name"
+      }
+    }
+  }
+}

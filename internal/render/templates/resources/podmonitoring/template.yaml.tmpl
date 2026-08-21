@@ -1,0 +1,23 @@
+{{- if .Values.podMonitoring.enabled -}}
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "[[ .ChartName ]].selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: {{ .Values.podMonitoring.port }}
+      path: {{ .Values.podMonitoring.path }}
+      interval: {{ .Values.podMonitoring.interval }}
+      {{- with .Values.podMonitoring.timeout }}
+      timeout: {{ . }}
+      {{- end }}
+  {{- with .Values.podMonitoring.targetLabels }}
+  targetLabels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -5,7 +5,19 @@ metadata:
   name: {{ include "[[ .ChartName ]].fullname" . }}
   labels:
     {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- /* The GKE resources are wired here rather than left to be remembered:
+         both are referenced by name from an annotation, and an annotation
+         naming nothing is the failure the whole pair exists to avoid. The
+         access is parenthesised because neither may be in the chart. */}}
+  {{- $gke := dict }}
+  {{- if (.Values.managedCertificate).enabled }}
+  {{- $_ := set $gke "networking.gke.io/managed-certificates" (include "[[ .ChartName ]].fullname" .) }}
+  {{- end }}
+  {{- if (.Values.frontendConfig).enabled }}
+  {{- $_ := set $gke "networking.gke.io/v1beta1.FrontendConfig" (include "[[ .ChartName ]].fullname" .) }}
+  {{- end }}
+  {{- $annotations := merge (dict) $gke .Values.ingress.annotations }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}

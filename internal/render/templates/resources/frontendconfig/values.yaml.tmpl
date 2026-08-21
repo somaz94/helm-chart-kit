@@ -1,0 +1,28 @@
+# =============================================================================
+# FrontendConfig (GKE)
+#
+# The other half of the GCLB the Ingress spec cannot describe: what happens in
+# front of the backend rather than behind it. HTTP-to-HTTPS redirection and
+# the TLS policy live here.
+#
+# The Ingress reaches it by name through the networking.gke.io/v1beta1.
+# FrontendConfig annotation, which the chart sets for you.
+#
+# Redirection here rather than in the application: the load balancer answers
+# before the request reaches a pod, so the plaintext request never carries a
+# cookie to a hop that could log it.
+# =============================================================================
+frontendConfig:
+  # -- Create the FrontendConfig
+  enabled: false
+  # -- Redirect HTTP to HTTPS at the load balancer.
+  #
+  # MOVED_PERMANENTLY_DEFAULT is a 301 and is cached by browsers, which is
+  # what you want in production and painful to undo in a test environment;
+  # FOUND is a 302 while you are still deciding.
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT
+  # -- SSL policy, by name. Provisioned outside the cluster; empty takes the
+  # Google default, which still permits TLS 1.0.
+  sslPolicy: ""

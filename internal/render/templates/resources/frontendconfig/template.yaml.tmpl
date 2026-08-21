@@ -1,0 +1,16 @@
+{{- if .Values.frontendConfig.enabled -}}
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  {{- with .Values.frontendConfig.redirectToHttps }}
+  redirectToHttps:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.frontendConfig.sslPolicy }}
+  sslPolicy: {{ . }}
+  {{- end }}
+{{- end }}

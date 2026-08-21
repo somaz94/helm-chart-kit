@@ -1,0 +1,17 @@
+{
+  "managedCertificate": {
+    "type": "object",
+    "description": "GKE ManagedCertificate. Google provisions and renews it; the Ingress references it by name.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the ManagedCertificate"
+      },
+      "domains": {
+        "type": "array",
+        "description": "Domains on the certificate, at most 100. Empty uses the hosts the chart's own Ingress serves.",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

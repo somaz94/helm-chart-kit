@@ -595,3 +595,70 @@ func TestLookupGroupRejectsWhatIsNotAGroup(t *testing.T) {
 		t.Error("observability did not resolve")
 	}
 }
+
+// A resource's Platform has to be a platform that exists. The value is a bare
+// string rather than a type because it names an overlay, and the overlay names
+// are the authority — so this is the check that keeps the two from drifting.
+// A typo would otherwise make a resource platform-specific to nothing: never
+// suggested, never filtered out of a group, silently unreachable.
+func TestResourcePlatformsAreRealPlatforms(t *testing.T) {
+	for _, r := range Resources() {
+		if r.Platform == "" {
+			continue
+		}
+		if _, ok := LookupOverlay(PlatformAxis, r.Platform); !ok {
+			t.Errorf("resource %q is platform %q, which does not exist (known: %s)",
+				r.Name, r.Platform, strings.Join(OverlayNames(PlatformAxis), ", "))
+		}
+	}
+}
+
+// PlatformResources answers per platform, and says nothing for "" — the
+// platform-neutral resources are the catalog, not a platform's set.
+func TestPlatformResources(t *testing.T) {
+	if got := PlatformResources(""); got != nil {
+		t.Errorf(`PlatformResources("") returned %d resources, want none`, len(got))
+	}
+	for _, name := range OverlayNames(PlatformAxis) {
+		for _, r := range PlatformResources(name) {
+			if r.Platform != name {
+				t.Errorf("PlatformResources(%q) returned %q, which is platform %q", name, r.Name, r.Platform)
+			}
+		}
+	}
+}
+
+// PlatformOnlyInGroup is what tells somebody a group is bigger than what "hck
+// add @name" gave them. It has to agree with the group listing and with the
+// Platform field, or the note would name a resource the expansion did include.
+func TestPlatformOnlyInGroup(t *testing.T) {
+	var found int
+	for _, g := range Groups() {
+		only := PlatformOnlyInGroup(g.Name)
+		for _, r := range only {
+			if r.Platform == "" {
+				t.Errorf("PlatformOnlyInGroup(%q) returned %q, which is platform-neutral", g.Name, r.Name)
+			}
+			if r.Group != g.Name {
+				t.Errorf("PlatformOnlyInGroup(%q) returned %q, which is in %q", g.Name, r.Name, r.Group)
+			}
+		}
+		found += len(only)
+		// It is the platform-specific half of the group, so the two halves
+		// have to add back up to the whole.
+		var neutral int
+		for _, r := range ResourcesInGroup(g.Name) {
+			if r.Platform == "" {
+				neutral++
+			}
+		}
+		if neutral+len(only) != len(ResourcesInGroup(g.Name)) {
+			t.Errorf("group %q: %d neutral + %d platform != %d total",
+				g.Name, neutral, len(only), len(ResourcesInGroup(g.Name)))
+		}
+	}
+	// And the catalog has some, or every caller of this is dead code.
+	if found == 0 {
+		t.Error("no group has a platform-specific resource; the axis is unexercised")
+	}
+}

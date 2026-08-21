@@ -1,0 +1,34 @@
+{
+  "podMonitoring": {
+    "type": "object",
+    "description": "Google Managed Prometheus PodMonitoring. GMP reads this rather than a ServiceMonitor, and selects pods directly.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the PodMonitoring"
+      },
+      "port": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Named container port to scrape. Must match a port the pod declares."
+      },
+      "path": {
+        "type": "string",
+        "description": "Metrics path"
+      },
+      "interval": {
+        "type": "string",
+        "description": "Scrape interval"
+      },
+      "timeout": {
+        "type": "string",
+        "description": "Per-scrape timeout. Empty takes the interval."
+      },
+      "targetLabels": {
+        "type": "array",
+        "description": "Pod labels to copy onto every metric",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}
