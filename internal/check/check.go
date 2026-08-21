@@ -31,6 +31,15 @@ const (
 	Error Severity = "error"
 	// Warn is a practice the house rules call out but that still works.
 	Warn Severity = "warn"
+	// Info is something true about the chart that is nobody's mistake — a
+	// prerequisite it has on the cluster it lands in, which hck can see and
+	// cannot check. A warning says the chart is wrong; an info says the chart
+	// is fine and something outside it has to be true. Collapsing the two
+	// would mean either failing --strict over a chart hck itself generated, or
+	// staying silent about a claim that will never bind. Neither --strict nor
+	// the exit status reacts to it, and a chart that wants the stronger
+	// reading raises it to warn in its own .hck.yaml.
+	Info Severity = "info"
 )
 
 // Finding is one rule hit.
@@ -53,19 +62,30 @@ type Report struct {
 	Disabled []string
 }
 
-// Errors counts findings that fail the check.
-func (r *Report) Errors() int {
+// count is how many findings came out at one severity. Every count goes
+// through it rather than being derived by subtraction: Warns() was once
+// "everything that is not an error", which was the same number right up until
+// a third severity existed, and would then have quietly counted Info findings
+// as warnings and failed --strict on them.
+func (r *Report) count(s Severity) int {
 	n := 0
 	for _, f := range r.Findings {
-		if f.Severity == Error {
+		if f.Severity == s {
 			n++
 		}
 	}
 	return n
 }
 
-// Warns counts advisory findings.
-func (r *Report) Warns() int { return len(r.Findings) - r.Errors() }
+// Errors counts findings that fail the check.
+func (r *Report) Errors() int { return r.count(Error) }
+
+// Warns counts advisory findings — the ones --strict fails on.
+func (r *Report) Warns() int { return r.count(Warn) }
+
+// Infos counts findings that are notes rather than complaints. They never
+// fail a check, at any strictness.
+func (r *Report) Infos() int { return r.count(Info) }
 
 // apply runs one rule and records what it found, unless the chart turned it
 // off. The severity comes from the rule and the config, never from the check

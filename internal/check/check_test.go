@@ -212,12 +212,16 @@ func TestChartLayoutRules(t *testing.T) {
 	}
 }
 
+// Each count is of its own severity and none is the remainder of the others.
+// Warns() used to be "every finding that is not an error", which was the same
+// number until Info existed and would then have quietly folded notes into the
+// count --strict fails on.
 func TestReportCounts(t *testing.T) {
 	r := &Report{Findings: []Finding{
-		{Severity: Error}, {Severity: Warn}, {Severity: Warn},
+		{Severity: Error}, {Severity: Warn}, {Severity: Warn}, {Severity: Info},
 	}}
-	if r.Errors() != 1 || r.Warns() != 2 {
-		t.Fatalf("Errors=%d Warns=%d, want 1 and 2", r.Errors(), r.Warns())
+	if r.Errors() != 1 || r.Warns() != 2 || r.Infos() != 1 {
+		t.Fatalf("Errors=%d Warns=%d Infos=%d, want 1, 2 and 1", r.Errors(), r.Warns(), r.Infos())
 	}
 }
 
@@ -954,5 +958,128 @@ spec:
 				t.Errorf("reported %s, want the unused one", got[0].Where)
 			}
 		})
+	}
+}
+
+func TestUnprovisionedStorageClassRule(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		manifests  string
+		wantFiring bool
+		wantWhere  string
+	}{
+		// The two classes hck's own overlays name and no platform creates.
+		{"a PVC on gp3", `
+kind: PersistentVolumeClaim
+metadata: {name: a}
+spec: {storageClassName: gp3}
+`, true, "PersistentVolumeClaim/a"},
+		{"a StatefulSet volumeClaimTemplate on local-path", `
+kind: StatefulSet
+metadata: {name: a}
+spec:
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {storageClassName: local-path}
+`, true, "StatefulSet/a volumeClaimTemplate=data"},
+
+		// The two the platform ships. An overlay naming one of these is
+		// giving advice that works on an untouched cluster, and a note about
+		// it would be noise on every gcp and azure chart hck generates.
+		{"a PVC on premium-rwo", `
+kind: PersistentVolumeClaim
+metadata: {name: a}
+spec: {storageClassName: premium-rwo}
+`, false, ""},
+		{"a PVC on managed-csi-premium", `
+kind: PersistentVolumeClaim
+metadata: {name: a}
+spec: {storageClassName: managed-csi-premium}
+`, false, ""},
+
+		// The cluster default always resolves, so there is nothing to say.
+		{"no class at all", `
+kind: PersistentVolumeClaim
+metadata: {name: a}
+spec: {accessModes: [ReadWriteOnce]}
+`, false, ""},
+		{"the empty class", `
+kind: PersistentVolumeClaim
+metadata: {name: a}
+spec: {storageClassName: ""}
+`, false, ""},
+
+		// A name hck never suggested belongs to the user's cluster, and hck
+		// knows nothing about it. Reporting here would be a guess.
+		{"the user's own class", `
+kind: PersistentVolumeClaim
+metadata: {name: a}
+spec: {storageClassName: ceph-rbd}
+`, false, ""},
+
+		// Quiet on a chart with no claim in it at all.
+		{"a StatefulSet with no volumeClaimTemplates", `
+kind: StatefulSet
+metadata: {name: a}
+spec: {replicas: 3}
+`, false, ""},
+
+		// Malformed input is somebody else's finding, never a panic here.
+		{"volumeClaimTemplates is not a list of maps", `
+kind: StatefulSet
+metadata: {name: a}
+spec:
+  volumeClaimTemplates: ["nope", {spec: "also nope"}, {metadata: {}, spec: {storageClassName: gp3}}]
+`, true, "StatefulSet/a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs, err := decodeAll(tc.manifests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := unprovisionedStorageClassRule(objs)
+			if firing := len(got) > 0; firing != tc.wantFiring {
+				t.Fatalf("fired=%v want %v: %v", firing, tc.wantFiring, got)
+			}
+			if tc.wantWhere != "" && got[0].Where != tc.wantWhere {
+				t.Errorf("Where = %q, want %q", got[0].Where, tc.wantWhere)
+			}
+		})
+	}
+}
+
+// The remedy is half the finding. "Create one against the EBS CSI driver" and
+// "install local-path-provisioner" are different instructions, and a rule that
+// named the class without saying what to do about it would leave the reader
+// exactly where the values.yaml comment already left them.
+func TestUnprovisionedStorageClassNamesTheRemedy(t *testing.T) {
+	for class, want := range map[string]string{
+		"gp3":        "EBS CSI driver",
+		"local-path": "local-path-provisioner",
+	} {
+		objs, err := decodeAll("kind: PersistentVolumeClaim\nmetadata: {name: a}\nspec: {storageClassName: " + class + "}\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := unprovisionedStorageClassRule(objs)
+		if len(got) != 1 {
+			t.Fatalf("%s: got %d hits, want 1", class, len(got))
+		}
+		if !strings.Contains(got[0].Message, want) {
+			t.Errorf("%s: message does not name the remedy %q: %s", class, want, got[0].Message)
+		}
+	}
+}
+
+// HCK040 is an info, and that is the whole design: hck's own aws overlay
+// writes gp3, so a warning would mean a chart hck generated fails hck's own
+// --strict. If this ever flips to Warn, that is what breaks.
+func TestTheStorageClassRuleIsANoteRatherThanAComplaint(t *testing.T) {
+	r, ok := LookupRule("HCK040")
+	if !ok {
+		t.Fatal("no HCK040")
+	}
+	if r.Severity != Info {
+		t.Errorf("HCK040 severity = %q, want %q — see the Info doc comment", r.Severity, Info)
 	}
 }

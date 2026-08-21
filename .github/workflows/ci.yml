@@ -181,6 +181,18 @@ jobs:
             exit 1
           }
 
+          # check reports three counts, and a consumer that summed warnings
+          # and infos would fail a chart over something --strict lets pass.
+          # The field has to be there even when it is zero. This runs while the
+          # chart still renders: the sync assertions below take away
+          # ci/install-values.yaml, and a chart that cannot render exits
+          # non-zero and takes the pipe with it under pipefail.
+          hck check --chart "$chart" --format json \
+            | jq -e 'has("errors") and has("warnings") and has("infos") and has("ok")' >/dev/null || {
+            echo "FAIL: hck check dropped a count from the JSON report"
+            exit 1
+          }
+
           # sync answers which files were compared and how each came out.
           hck sync --chart "$chart" --format json | jq -e '.ok' >/dev/null || {
             echo "FAIL: a freshly generated chart reported drift"
@@ -203,6 +215,7 @@ jobs:
             echo "FAIL: --check suppressed the document"
             exit 1
           }
+
           echo "PASS: the JSON contract"
 
       # "@name" stands for a group's members. The listing is where somebody
@@ -495,6 +508,54 @@ jobs:
             exit 1
           }
           echo "PASS: platform overlays"
+
+      # An overlay can ask for something the platform does not create, and the
+      # aws one does: gp3 is the right class on EKS and EKS ships no gp3. That
+      # makes hck the author of a chart with a prerequisite outside itself, so
+      # the note is reported and --strict still passes — a warning here would
+      # mean a chart hck generates fails hck's own check. The severity is the
+      # whole claim, so it is asserted from both sides.
+      - name: A cluster prerequisite is a note, not a failure
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new st --dir "$workdir" --preset stateful --platform aws >/dev/null
+          hck new sg --dir "$workdir" --preset stateful --platform gcp >/dev/null
+
+          # --strict exits 0, and the document says why that is not "clean".
+          report=$(hck check --chart "$workdir/st" --platform aws --strict --format json)
+          jq -e '.ok and .errors == 0 and .warnings == 0 and .infos == 1' >/dev/null <<<"$report" || {
+            echo "FAIL: the gp3 prerequisite did not come out as one passing note"
+            echo "$report"
+            exit 1
+          }
+          jq -e 'any(.findings[]; .rule == "HCK040" and .severity == "info")' >/dev/null <<<"$report" || {
+            echo "FAIL: HCK040 did not report the gp3 claim"
+            exit 1
+          }
+
+          # GKE creates premium-rwo, so the same preset is silent there. A note
+          # on every chart that asks for storage would be noise, not a finding.
+          report=$(hck check --chart "$workdir/sg" --platform gcp --strict --format json)
+          jq -e '.infos == 0 and (.findings | length) == 0' >/dev/null <<<"$report" || {
+            echo "FAIL: HCK040 fired where the platform ships the class"
+            echo "$report"
+            exit 1
+          }
+
+          # A note nothing can act on would be decoration: raising it in the
+          # chart's own .hck.yaml has to make the same chart fail --strict.
+          printf 'rules:\n  HCK040: warn\n' > "$workdir/st/.hck.yaml"
+          set +e
+          hck check --chart "$workdir/st" --platform aws --strict >/dev/null 2>&1
+          status=$?
+          set -e
+          [ "$status" -ne 0 ] || {
+            echo "FAIL: HCK040 raised to warn still passed --strict"
+            exit 1
+          }
+          echo "PASS: cluster prerequisites"
 
       # Environment overlays stack on top of a platform, and go last so their
       # size wins over whatever the platform set.

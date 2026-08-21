@@ -293,6 +293,11 @@ var rules = []Rule{
 		Summary: "chart creates a SecretStore its own ExternalSecret does not use",
 		set:     unusedSecretStoreRule,
 	},
+	{
+		ID: "HCK040", Severity: Info, Scope: SetScope,
+		Summary: "a claim requests a storage class the platform does not ship",
+		set:     unprovisionedStorageClassRule,
+	},
 }
 
 // wedgedBudgetRule catches a PodDisruptionBudget that allows nothing to be
@@ -890,6 +895,89 @@ func unusedSecretStoreRule(objs []object) []hit {
 				"nothing in this chart uses this SecretStore — its ExternalSecret names %s instead, which the chart does not provide. Point externalSecret.secretStoreRef at it, or drop one of the two",
 				strings.Join(pointsAt, ", ")),
 		})
+	}
+	return out
+}
+
+// storageClassShipsWithThePlatform is every class name one of hck's own
+// platform overlays writes that the platform creates for you. Nothing to
+// report: a claim against it binds on a cluster nobody has touched.
+var storageClassShipsWithThePlatform = []string{
+	"premium-rwo",         // GKE, alongside standard and standard-rwo
+	"managed-csi-premium", // AKS, alongside default, managed-csi and azurefile
+}
+
+// storageClassNeedsProvisioning is every class name one of hck's own platform
+// overlays writes that the platform does not create, mapped to what has to
+// happen first. These are the two halves of one list, and
+// TestEveryOverlayStorageClassIsClassified holds them to it: a new overlay
+// naming a class nobody classified fails there rather than being silently
+// unreportable.
+//
+// A class name outside both lists is the user's own, and hck says nothing
+// about it. It knows nothing about their cluster, and a note about a class it
+// never suggested would be a guess — the same quiet-when-unsure line HCK035
+// draws when the chart renders no pod.
+var storageClassNeedsProvisioning = map[string]string{
+	"gp3": "EKS ships gp2 and no gp3 — create one against the EBS CSI driver first",
+	"local-path": "local-path comes from local-path-provisioner, which k3s ships and a stock cluster does not — install it, " +
+		"or point persistence.storageClass at storage this cluster already has",
+}
+
+// unprovisionedStorageClassRule reports a claim whose storage class hck itself
+// suggested and hck itself cannot create.
+//
+// It is an info rather than a warning, and the difference is the whole point.
+// Nothing here is a mistake: gp3 is the right class to ask for on EKS, the aws
+// overlay is right to say so, and a chart is not wrong for naming it. What is
+// true is that the chart has a prerequisite outside itself — the class has to
+// exist — and if it does not, helm install succeeds, the PersistentVolumeClaim
+// stays Pending, and the pod never schedules. No controller writes that
+// anywhere a person is looking.
+//
+// The chart cannot close the gap either: a StorageClass is cluster-scoped, so
+// a chart creating one collides with the next release that does the same, for
+// the same reason ClusterSecretStore and ClusterPodMonitoring stayed out of
+// the catalog. Reporting is the whole of what hck can do here, which is why
+// this is the rule and not a resource.
+func unprovisionedStorageClassRule(objs []object) []hit {
+	var out []hit
+	note := func(where, class string) {
+		remedy, ok := storageClassNeedsProvisioning[class]
+		if !ok {
+			return
+		}
+		out = append(out, hit{
+			Where: where,
+			Message: fmt.Sprintf(
+				"requests storage class %q, which this chart does not create and the platform does not ship. %s. Until then the claim stays Pending and the pod never schedules, and nothing reports a failure",
+				class, remedy),
+		})
+	}
+	for _, o := range objs {
+		switch o.Kind {
+		case "PersistentVolumeClaim":
+			note("PersistentVolumeClaim/"+o.Name, str(o.Spec["storageClassName"]))
+		case "StatefulSet":
+			templates, _ := o.Spec["volumeClaimTemplates"].([]any)
+			for _, ti := range templates {
+				t, ok := ti.(map[string]any)
+				if !ok {
+					continue
+				}
+				spec, ok := t["spec"].(map[string]any)
+				if !ok {
+					continue
+				}
+				where := "StatefulSet/" + o.Name
+				if md, ok := t["metadata"].(map[string]any); ok {
+					if n := str(md["name"]); n != "" {
+						where += " volumeClaimTemplate=" + n
+					}
+				}
+				note(where, str(spec["storageClassName"]))
+			}
+		}
 	}
 	return out
 }

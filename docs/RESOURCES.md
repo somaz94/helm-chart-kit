@@ -106,6 +106,49 @@ Named explicitly, it goes in. hck never refuses one — it cannot know what clus
 
 <br/>
 
+## What a platform overlay can ask for and cannot provide
+
+A platform overlay names things. Most of them the chart can then render — that is what the platform-only resources above are for. One kind it cannot: an object that is **cluster-scoped**.
+
+`values-aws.yaml` sets `persistence.storageClass: gp3`, and it is right to. gp3 has the durability of gp2, costs less, and lets IOPS and throughput be set independently of size. GKE and AKS ship an equivalent class; EKS ships `gp2` and nothing else, so on a stock EKS cluster that claim binds to nothing.
+
+hck cannot close that gap by adding a `storageclass` resource. A `StorageClass` is cluster-scoped, so two releases of the same chart in one cluster would create the same object and the second `helm install` fails — the same collision that kept `ClusterSecretStore` and `ClusterPodMonitoring` out of the catalog. Naming it per release avoids the collision and produces one identical class per release, which is not what a cluster-wide class is.
+
+So it is reported instead, as `HCK040`:
+
+```console
+$ hck check --platform aws --strict
+check demo (aws)
+
+  info  HCK040  StatefulSet/demo volumeClaimTemplate=data
+        requests storage class "gp3", which this chart does not create and the
+        platform does not ship. EKS ships gp2 and no gp3 — create one against
+        the EBS CSI driver first. Until then the claim stays Pending and the
+        pod never schedules, and nothing reports a failure
+
+  ok 0 warnings, 0 errors, 1 info(s)
+```
+
+It is an `info` rather than a warning, and that is the whole design. Nothing here is a mistake: the chart is right, the overlay is right, and the only thing missing is outside both. A warning would mean a chart hck itself generated fails hck's own `--strict`. Saying nothing would leave it to be discovered from a pod that never schedules.
+
+The rule reports a class name only if it recognises it. Two lists in `internal/check/rules.go` hold every name hck's own overlays write — the ones the platform creates, and the ones somebody has to — and a name in neither is the user's own, about which hck knows nothing. `TestEveryOverlayStorageClassIsClassified` fails when a new overlay names a class neither list covers, because the alternative is silence, and silence from a rule reads exactly like the chart being fine.
+
+| Overlay | Class | Ships with the platform |
+|---|---|---|
+| `values-aws.yaml` | `gp3` | No — create one against the EBS CSI driver |
+| `values-gcp.yaml` | `premium-rwo` | Yes |
+| `values-azure.yaml` | `managed-csi-premium` | Yes |
+| `values-onprem.yaml` | `local-path` | No — k3s ships it, a stock cluster does not |
+
+A chart that treats the class as its own job to create says so, and then `--strict` does stop it:
+
+```yaml
+rules:
+  HCK040: warn
+```
+
+<br/>
+
 ## Resources
 
 | Name | apiVersion | Values key | Notes |

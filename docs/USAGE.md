@@ -246,7 +246,7 @@ hck check [flags]
 | `-f, --values` | — | Values files passed to helm; repeatable |
 | `--platform` | — | Also apply these platform overlays, comma-separated |
 | `--env` | — | Also apply these environment overlays, comma-separated. Applied after `--platform`, so it wins |
-| `--strict` | `false` | Fail on warnings as well as errors |
+| `--strict` | `false` | Fail on warnings as well as errors. Info findings never fail |
 | `--off` | — | Rules to turn off for this run, comma-separated; `"*"` turns off every rule that can be |
 | `--print` | `false` | Print the rendered manifests |
 | `--no-render` | `false` | Skip helm; run only the rules that read the chart directory |
@@ -262,7 +262,21 @@ hck check --format json        # same run, machine-readable
 
 When no `-f` is given and the chart has `ci/install-values.yaml`, that file is used. A chart whose `image.tag` is required cannot render on its defaults — which is the point of requiring one — so the CI values file is what makes it checkable at all.
 
-`hck check` exits non-zero on any error finding, or on any finding at all under `--strict`.
+`hck check` exits non-zero on any error finding, or on any warning as well under `--strict`. An info finding never fails a check, at any strictness.
+
+<br/>
+
+### The three severities
+
+| Severity | What it means | Fails `--strict`? |
+|---|---|---|
+| `error` | The chart will not render, or will not apply | Yes, and without `--strict` too |
+| `warn` | A practice the house rules call out, that still works | Yes |
+| `info` | A prerequisite the chart has on the cluster it lands in | No |
+
+The last one exists because some things a chart needs are nobody's mistake. `hck new --platform aws` writes `persistence.storageClass: gp3`, which is the right class to ask for on EKS and a class EKS does not create — so the chart is correct, the advice is correct, and a `PersistentVolumeClaim` against it stays Pending until somebody makes one. `HCK040` reports that.
+
+Reporting it as a warning would mean a chart hck itself generated fails hck's own `--strict`; saying nothing would leave the reader to find out from a pod that never schedules. So it is reported and it does not fail. A chart that treats the class as its own job to create raises it — `HCK040: warn` — and then `--strict` does stop it.
 
 <br/>
 
@@ -276,7 +290,7 @@ rules:
   HCK023: error    # and will not ship without requests
 ```
 
-Every rule takes `off`, `warn` or `error`, and `hck list rules` prints the IDs. Three things are deliberate:
+Every rule takes `off`, `info`, `warn` or `error`, and `hck list rules` prints the IDs. Both directions are meant: raising `HCK040: warn` makes a cluster prerequisite fail `--strict`, and lowering a warning to `info` keeps it visible without being stopped by it — which is the half `off` cannot express. Three things are deliberate:
 
 - An ID that does not exist is an error, not a silent no-op. A misspelled rule that quietly kept reporting is indistinguishable from a rule that is right.
 - `HCK001` cannot be configured. A chart that does not render has nothing else worth reporting.
@@ -318,12 +332,13 @@ hck check --off '*'
   ],
   "errors": 0,
   "warnings": 1,
+  "infos": 0,
   "disabled": ["HCK025"],
   "ok": true
 }
 ```
 
-`ok` matches the exit status, `--strict` included, so a CI step can read the verdict instead of grepping for it. `--print` has no effect here — a manifest stream inside a JSON string is for neither reading nor parsing.
+`ok` matches the exit status, `--strict` included, so a CI step can read the verdict instead of grepping for it. `infos` is counted apart from `warnings` and never folded into it: a consumer summing the two would fail a chart over exactly what `--strict` deliberately lets pass. `--print` has no effect here — a manifest stream inside a JSON string is for neither reading nor parsing.
 
 <br/>
 

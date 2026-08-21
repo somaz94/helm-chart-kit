@@ -33,6 +33,7 @@ func (p painter) wrap(code, s string) string {
 func (p painter) green(s string) string  { return p.wrap("32", s) }
 func (p painter) yellow(s string) string { return p.wrap("33", s) }
 func (p painter) red(s string) string    { return p.wrap("31", s) }
+func (p painter) cyan(s string) string   { return p.wrap("36", s) }
 func (p painter) dim(s string) string    { return p.wrap("2", s) }
 func (p painter) bold(s string) string   { return p.wrap("1", s) }
 

@@ -43,8 +43,15 @@ const WildcardRule = "*"
 // the default. There is deliberately no way to add a rule here: a rule is code
 // with a stable ID, and a chart-local one would report under an ID that means
 // something else in the next chart.
+//
+// Both directions across the info boundary are meant: a chart that treats a
+// cluster prerequisite as its own to satisfy raises HCK040 to warn and fails
+// --strict until it is, and a chart drowning in a warning it disagrees with
+// lowers it to info and keeps seeing it without being stopped by it. Lowering
+// is the half that "off" cannot express.
 type Config struct {
-	// Rules maps a rule ID — or WildcardRule — to "off", "warn" or "error".
+	// Rules maps a rule ID — or WildcardRule — to "off", "info", "warn" or
+	// "error".
 	Rules map[string]string `yaml:"rules"`
 }
 
@@ -89,9 +96,9 @@ func (c *Config) Validate() error {
 			}
 		}
 		switch setting := c.Rules[id]; setting {
-		case "off", string(Warn), string(Error):
+		case "off", string(Info), string(Warn), string(Error):
 		default:
-			return fmt.Errorf("%s is set to %q; it takes off, warn or error", id, setting)
+			return fmt.Errorf("%s is set to %q; it takes off, info, warn or error", id, setting)
 		}
 	}
 	return nil
@@ -136,6 +143,8 @@ func (c *Config) severity(r Rule) (Severity, bool) {
 		return Error, true
 	case string(Warn):
 		return Warn, true
+	case string(Info):
+		return Info, true
 	default:
 		return r.Severity, true
 	}

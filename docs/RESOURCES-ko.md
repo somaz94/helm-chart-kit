@@ -106,6 +106,49 @@ $ hck add @secrets
 
 <br/>
 
+## 플랫폼 오버레이가 요청할 수는 있어도 제공할 수 없는 것
+
+플랫폼 오버레이는 이름을 붙입니다. 그중 대부분은 차트가 이어서 렌더할 수 있고, 위의 플랫폼 전용 리소스가 바로 그것을 위해 있습니다. 한 부류만은 그럴 수 없습니다. **cluster-scoped** 오브젝트입니다.
+
+`values-aws.yaml`은 `persistence.storageClass: gp3`을 설정하고, 그건 옳은 선택입니다. gp3는 gp2와 같은 내구성을 가지면서 더 싸고, IOPS와 처리량을 용량과 별개로 지정할 수 있습니다. GKE와 AKS는 그에 상응하는 클래스를 제공하지만, EKS는 `gp2` 하나뿐입니다. 손대지 않은 EKS 클러스터에서 그 클레임은 아무것에도 바인딩되지 않습니다.
+
+hck는 `storageclass` 리소스를 추가하는 방식으로 이 간극을 메울 수 없습니다. `StorageClass`는 cluster-scoped라, 같은 차트의 릴리스 둘이 한 클러스터에 있으면 같은 오브젝트를 만들게 되고 두 번째 `helm install`이 실패합니다. `ClusterSecretStore`와 `ClusterPodMonitoring`을 카탈로그 밖에 둔 것과 같은 충돌입니다. 릴리스마다 다른 이름을 붙이면 충돌은 피하지만, 릴리스 수만큼 똑같은 클래스가 생깁니다. 클러스터 전체가 쓰는 클래스란 그런 것이 아닙니다.
+
+그래서 대신 `HCK040`으로 보고합니다.
+
+```console
+$ hck check --platform aws --strict
+check demo (aws)
+
+  info  HCK040  StatefulSet/demo volumeClaimTemplate=data
+        requests storage class "gp3", which this chart does not create and the
+        platform does not ship. EKS ships gp2 and no gp3 — create one against
+        the EBS CSI driver first. Until then the claim stays Pending and the
+        pod never schedules, and nothing reports a failure
+
+  ok 0 warnings, 0 errors, 1 info(s)
+```
+
+경고가 아니라 `info`인 것이 이 설계의 전부입니다. 여기에 잘못된 것은 하나도 없습니다. 차트도 맞고 오버레이도 맞고, 빠진 것은 둘 다의 바깥에 있습니다. 경고로 두면 hck가 직접 만든 차트가 hck 자신의 `--strict`에서 실패하게 됩니다. 아무 말도 하지 않으면, 영영 스케줄되지 않는 파드를 보고서야 알게 됩니다.
+
+이 규칙은 아는 클래스 이름에 대해서만 보고합니다. `internal/check/rules.go`의 목록 두 개가 hck 자신의 오버레이가 쓰는 이름을 전부 담고 있습니다. 플랫폼이 만들어주는 것과, 누군가 만들어야 하는 것입니다. 둘 중 어디에도 없는 이름은 사용자의 것이고, 그에 대해 hck는 아무것도 모릅니다. 새 오버레이가 어느 목록에도 없는 클래스를 이름으로 쓰면 `TestEveryOverlayStorageClassIsClassified`가 실패합니다. 그러지 않으면 남는 것은 침묵인데, 규칙의 침묵은 차트가 멀쩡하다는 말과 똑같이 읽히기 때문입니다.
+
+| Overlay | Class | 플랫폼이 제공하는가 |
+|---|---|---|
+| `values-aws.yaml` | `gp3` | 아니오 — EBS CSI 드라이버를 대상으로 직접 만들어야 함 |
+| `values-gcp.yaml` | `premium-rwo` | 예 |
+| `values-azure.yaml` | `managed-csi-premium` | 예 |
+| `values-onprem.yaml` | `local-path` | 아니오 — k3s는 제공하지만 기본 클러스터는 아님 |
+
+클래스를 만드는 게 자기 일이라고 보는 차트는 그렇게 적으면 되고, 그때부터는 `--strict`가 실제로 막아섭니다.
+
+```yaml
+rules:
+  HCK040: warn
+```
+
+<br/>
+
 ## 리소스
 
 | 이름 | apiVersion | values 키 | 비고 |

@@ -101,8 +101,11 @@ column is added.`,
 				w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 				for _, r := range check.Rules() {
 					sev := p.yellow(string(r.Severity))
-					if r.Severity == check.Error {
+					switch r.Severity {
+					case check.Error:
 						sev = p.red(string(r.Severity))
+					case check.Info:
+						sev = p.cyan(string(r.Severity))
 					}
 					fmt.Fprintf(w, "  %s\t%s\t%s\n", r.ID, sev, r.Summary)
 				}
@@ -111,6 +114,11 @@ column is added.`,
 				fprintf(out, "  %s\n", p.dim("rules:"))
 				fprintf(out, "  %s\n", p.dim(`  "`+check.WildcardRule+`": off    # every rule that can be`))
 				fprintf(out, "  %s\n", p.dim("  HCK025: off"))
+				// An info reports a prerequisite and never fails a check, so
+				// the way to act on one is to raise it. Showing that here is
+				// what makes the severity findable at all: nothing else in the
+				// listing says a rule can move up as well as off.
+				fprintf(out, "  %s\n", p.dim("  HCK040: warn   # an info this chart wants --strict to fail on"))
 				fprintf(out, "\n  Or for one run, without editing the chart: %s\n", p.dim("hck check --off HCK025"))
 			}
 			return nil

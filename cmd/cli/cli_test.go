@@ -2133,3 +2133,82 @@ func TestSyncJSON(t *testing.T) {
 		t.Error("--check passed a chart with drift")
 	}
 }
+
+// A chart hck generates has to pass hck's own check, and hck's own aws overlay
+// asks for gp3 — a class EKS does not create. Those two facts are only
+// compatible because HCK040 is an info: it is reported, and --strict does not
+// fail on it. If the rule is ever raised by default, this is the test that
+// says what that costs.
+func TestTheStorageClassNoteDoesNotFailAStrictCheck(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	parent := t.TempDir()
+	mustRun(t, "new", "demo", "-d", parent, "--preset", "stateful", "--platform", "aws")
+	dir := filepath.Join(parent, "demo")
+
+	out := mustRun(t, "check", "--chart", dir, "--platform", "aws", "--strict")
+	for _, want := range []string{"HCK040", "info", "gp3", "EBS CSI driver"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report does not mention %q:\n%s", want, out)
+		}
+	}
+	// "no findings" would be a lie here, and the count line is what keeps it
+	// honest: nothing failed, and something was reported.
+	if strings.Contains(out, "no findings") {
+		t.Errorf("a reported prerequisite is still a finding:\n%s", out)
+	}
+	if !strings.Contains(out, "1 info(s)") {
+		t.Errorf("the tally does not count the note:\n%s", out)
+	}
+
+	// The same run as a document: counted apart from warnings, and ok.
+	out = mustRun(t, "check", "--chart", dir, "--platform", "aws", "--strict", "--format", "json")
+	var doc struct {
+		Findings []struct {
+			Rule     string `json:"rule"`
+			Severity string `json:"severity"`
+		} `json:"findings"`
+		Errors   int  `json:"errors"`
+		Warnings int  `json:"warnings"`
+		Infos    int  `json:"infos"`
+		OK       bool `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if !doc.OK || doc.Errors != 0 || doc.Warnings != 0 || doc.Infos != 1 {
+		t.Errorf("got %+v", doc)
+	}
+	if len(doc.Findings) != 1 || doc.Findings[0].Rule != "HCK040" || doc.Findings[0].Severity != "info" {
+		t.Errorf("findings = %+v", doc.Findings)
+	}
+
+	// An info nothing can act on would be decoration. A team that owns its
+	// cluster and treats the class as their job to create raises it, and the
+	// same chart then fails --strict until they do.
+	writeFile(t, filepath.Join(dir, check.ConfigFile), "rules:\n  HCK040: warn\n")
+	if _, err := run(t, "check", "--chart", dir, "--platform", "aws", "--strict"); err == nil {
+		t.Error("HCK040 raised to warn still passed --strict")
+	}
+}
+
+// The other three platforms name a class their own platform creates, so the
+// note stays quiet: it fires on a real prerequisite, not on every chart that
+// asks for storage.
+func TestTheStorageClassNoteIsQuietWhereThePlatformShipsTheClass(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm is not on PATH")
+	}
+	for _, platform := range []string{"gcp", "azure"} {
+		t.Run(platform, func(t *testing.T) {
+			parent := t.TempDir()
+			mustRun(t, "new", "demo", "-d", parent, "--preset", "stateful", "--platform", platform)
+			dir := filepath.Join(parent, "demo")
+			out := mustRun(t, "check", "--chart", dir, "--platform", platform, "--strict")
+			if !strings.Contains(out, "no findings") {
+				t.Errorf("%s is not clean:\n%s", platform, out)
+			}
+		})
+	}
+}

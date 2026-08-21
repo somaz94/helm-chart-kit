@@ -54,6 +54,11 @@ a chart that wants the house rules mostly out of the way says so once:
 --off does the same thing for one run without editing the chart, and takes "*"
 too. Either way the report still names what it did not look for.
 
+A rule takes off, info, warn or error. An info is a prerequisite rather than a
+defect — something true about the chart that is nobody's mistake, such as a
+storage class the platform does not ship — so it is reported and --strict does
+not fail on it. Raise one to warn when it is your job to satisfy.
+
 Run "hck list rules" for the rule IDs.`,
 		Args: cobra.NoArgs,
 		Example: `  hck check
@@ -141,8 +146,11 @@ Run "hck list rules" for the rule IDs.`,
 			fprintf(out, "%s %s\n\n", p.bold("check"), label)
 			for _, f := range rep.Findings {
 				tag := p.yellow("warn ")
-				if f.Severity == check.Error {
+				switch f.Severity {
+				case check.Error:
 					tag = p.red("error")
+				case check.Info:
+					tag = p.cyan("info ")
 				}
 				fprintf(out, "  %s %s  %s\n", tag, p.dim(f.Rule), f.Where)
 				fprintf(out, "        %s\n", f.Message)
@@ -155,16 +163,28 @@ Run "hck list rules" for the rule IDs.`,
 				fprintf(out, "  %s\n", p.dim("not checked: "+strings.Join(rep.Disabled, ", ")))
 			}
 
-			errs, warns := rep.Errors(), rep.Warns()
+			// Notes ride along in every tally and decide none of them: they
+			// are what the chart needs from its cluster, not what is wrong
+			// with the chart, so --strict does not see them. Counting them
+			// separately is what keeps "no findings" honest — a run that
+			// reported a prerequisite did not find nothing.
+			errs, warns, infos := rep.Errors(), rep.Warns(), rep.Infos()
+			notes := ""
+			if infos > 0 {
+				notes = fmt.Sprintf(", %d info(s)", infos)
+			}
 			switch {
-			case errs == 0 && warns == 0:
+			case errs == 0 && warns == 0 && infos == 0:
 				fprintf(out, "  %s no findings\n", p.green("ok"))
 				return nil
+			case errs == 0 && warns == 0:
+				fprintf(out, "\n  %s 0 warnings, 0 errors%s\n", p.green("ok"), notes)
+				return nil
 			case errs == 0 && !opts.strict:
-				fprintf(out, "\n  %s %d warning(s), 0 errors\n", p.green("ok"), warns)
+				fprintf(out, "\n  %s %d warning(s), 0 errors%s\n", p.green("ok"), warns, notes)
 				return nil
 			}
-			fprintf(out, "\n  %d error(s), %d warning(s)\n", errs, warns)
+			fprintf(out, "\n  %d error(s), %d warning(s)%s\n", errs, warns, notes)
 			return fmt.Errorf("check failed")
 		},
 	}
@@ -173,7 +193,7 @@ Run "hck list rules" for the rule IDs.`,
 	cmd.Flags().StringSliceVarP(&opts.valuesFiles, "values", "f", nil, "values files passed to helm; repeatable")
 	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "also apply these platform overlays: "+strings.Join(catalog.OverlayNames(catalog.PlatformAxis), ", "))
 	cmd.Flags().StringSliceVar(&opts.envs, "env", nil, "also apply these environment overlays: "+strings.Join(catalog.OverlayNames(catalog.EnvironmentAxis), ", "))
-	cmd.Flags().BoolVar(&opts.strict, "strict", false, "fail on warnings as well as errors")
+	cmd.Flags().BoolVar(&opts.strict, "strict", false, "fail on warnings as well as errors; info findings never fail")
 	cmd.Flags().BoolVar(&opts.printOutput, "print", false, "print the rendered manifests")
 	cmd.Flags().BoolVar(&opts.noRender, "no-render", false, "skip helm; run only the rules that read the chart directory")
 	cmd.Flags().StringVar(&opts.format, "format", formatText, "output format: "+formatText+" or "+formatJSON)
@@ -208,6 +228,11 @@ type jsonReport struct {
 	Findings []jsonFinding `json:"findings"`
 	Errors   int           `json:"errors"`
 	Warnings int           `json:"warnings"`
+	// Infos counts the findings that report a prerequisite rather than a
+	// defect. It is reported separately from Warnings and not folded into it,
+	// because OK ignores it: a consumer summing the two would fail a chart
+	// over something --strict deliberately lets pass.
+	Infos int `json:"infos"`
 	// Disabled names the rules the chart turned off, so a consumer can tell a
 	// clean run from an unasked question.
 	Disabled []string `json:"disabled,omitempty"`
@@ -234,6 +259,7 @@ func printReportJSON(out io.Writer, chartName string, overlays []string, rep *ch
 		Findings: make([]jsonFinding, 0, len(rep.Findings)),
 		Errors:   errs,
 		Warnings: warns,
+		Infos:    rep.Infos(),
 		Disabled: rep.Disabled,
 		OK:       errs == 0 && (!strict || warns == 0),
 	}

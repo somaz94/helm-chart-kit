@@ -96,6 +96,10 @@ Two things are fixed once a rule ships:
 - **The ID never changes.** It is what a chart's `.hck.yaml` refers to, and reusing a retired one silently turns a rule back on somewhere.
 - **The default severity is the rule's own judgement**, not a chart's. A chart that disagrees says so in its `.hck.yaml`; `TestRuleRegistryIsWellFormed` checks the declaration is coherent.
 
+Choosing between the three severities is one question: **who is this a defect for?** `Error` and `Warn` both say the chart is wrong, and differ only in how badly. `Info` says the chart is right and something outside it has to be true — a prerequisite on the cluster, which hck can see and cannot check.
+
+The test for it is whether hck's own output can produce the finding. It can here: `hck new --platform aws` writes `persistence.storageClass: gp3`, and `HCK040` reports it. A warning would mean a chart hck generated fails hck's own `--strict`, which is a contradiction rather than a finding — so a rule that fires on what hck itself writes is either an info or a bug in the generator. `--strict` never fails on an info, and a chart that wants it to raises the rule.
+
 <br/>
 
 ## The overlay axes

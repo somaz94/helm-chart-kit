@@ -161,8 +161,14 @@ func TestRuleRegistryIsWellFormed(t *testing.T) {
 		if r.Summary == "" {
 			t.Errorf("%s has no summary", r.ID)
 		}
-		if r.Severity != Warn && r.Severity != Error {
+		if r.Severity != Info && r.Severity != Warn && r.Severity != Error {
 			t.Errorf("%s has severity %q", r.ID, r.Severity)
+		}
+		// A locked rule cannot be configured, so its declared severity is the
+		// only one it ever reports at. An info that cannot be raised would be
+		// a finding nothing can ever act on.
+		if r.Locked && r.Severity == Info {
+			t.Errorf("%s is locked and an info, so nothing can ever make it fail", r.ID)
 		}
 		if got, ok := LookupRule(r.ID); !ok || got.ID != r.ID {
 			t.Errorf("%s is listed but not found", r.ID)
@@ -276,5 +282,52 @@ func TestTurnOff(t *testing.T) {
 	var absent *Config
 	if got, err := absent.TurnOff(nil); err != nil || got != nil {
 		t.Errorf("got %v, %v; want the nil config back untouched", got, err)
+	}
+}
+
+// info is a severity a chart can name, in both directions. Raising HCK040 is
+// how a team that owns its cluster says the storage class is their job and
+// they want --strict to stop them; lowering a rule to info is how a chart
+// keeps seeing a finding it disagrees with without being failed by it, which
+// is the half "off" cannot express.
+func TestInfoIsASeverityAChartCanSet(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  *Config
+		rule string
+		want Severity
+	}{
+		{"the default", nil, "HCK040", Info},
+		{"raised to warn", &Config{Rules: map[string]string{"HCK040": "warn"}}, "HCK040", Warn},
+		{"raised to error", &Config{Rules: map[string]string{"HCK040": "error"}}, "HCK040", Error},
+		{"a warning lowered to info", &Config{Rules: map[string]string{"HCK023": "info"}}, "HCK023", Info},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, ok := LookupRule(tc.rule)
+			if !ok {
+				t.Fatalf("no %s", tc.rule)
+			}
+			sev, on := tc.cfg.severity(r)
+			if !on || sev != tc.want {
+				t.Errorf("severity = %q/%v, want %q/true", sev, on, tc.want)
+			}
+		})
+	}
+}
+
+// A severity the config does not know has to be refused rather than silently
+// falling through to the rule's default, and the error has to list what is
+// actually accepted — "it takes off, warn or error" sent a reader looking for
+// a setting that exists.
+func TestValidateAcceptsInfoAndNamesItWhenRefusing(t *testing.T) {
+	if err := (&Config{Rules: map[string]string{"HCK040": "info"}}).Validate(); err != nil {
+		t.Errorf("info refused: %v", err)
+	}
+	err := (&Config{Rules: map[string]string{"HCK040": "note"}}).Validate()
+	if err == nil {
+		t.Fatal("want an error for an unknown severity")
+	}
+	if !strings.Contains(err.Error(), "info") {
+		t.Errorf("the error does not offer info: %v", err)
 	}
 }

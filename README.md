@@ -461,8 +461,9 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK037` | warn | Chart renders two resources answering the same question |
 | `HCK038` | warn | A GKE annotation names a config object the chart does not render |
 | `HCK036` | warn | A PodDisruptionBudget that never allows a voluntary disruption |
+| `HCK040` | info | A claim requests a storage class the platform does not ship |
 
-Warnings pass by default; `--strict` fails on them. `hck list rules` prints the same table with the wording `hck check` uses.
+Warnings pass by default; `--strict` fails on them. An `info` is neither: it reports a prerequisite the chart has on its cluster rather than something wrong with the chart, and no strictness fails on it. `hck new --platform aws` asks for `gp3` — the right class on EKS, and one EKS does not create — so `HCK040` says so and the chart still passes. `hck list rules` prints the same table with the wording `hck check` uses.
 
 A chart that disagrees with a rule says so in its own `.hck.yaml`, next to `Chart.yaml`:
 
@@ -472,7 +473,7 @@ rules:
   HCK023: error    # and will not ship without requests
 ```
 
-Every rule takes `off`, `warn` or `error`. An ID that does not exist is an error rather than a silent no-op — the whole point of writing `HCK025` down is to stop seeing it, and a misspelling that quietly kept reporting would be indistinguishable from the rule being right. `HCK001` is the exception: a chart that does not render has nothing else worth reporting, so it cannot be configured. What a chart turned off is printed with the findings, because a clean report over a chart with half the rules off says less than it looks like it does.
+Every rule takes `off`, `info`, `warn` or `error`. Both directions are useful: `HCK040: warn` turns a cluster prerequisite into something `--strict` stops you on, and lowering a warning to `info` keeps it in the report without failing the build. An ID that does not exist is an error rather than a silent no-op — the whole point of writing `HCK025` down is to stop seeing it, and a misspelling that quietly kept reporting would be indistinguishable from the rule being right. `HCK001` is the exception: a chart that does not render has nothing else worth reporting, so it cannot be configured. What a chart turned off is printed with the findings, because a clean report over a chart with half the rules off says less than it looks like it does.
 
 For CI, `--format json` reports the same run as a document with an `ok` field matching the exit status:
 
