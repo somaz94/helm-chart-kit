@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.0](https://github.com/somaz94/helm-chart-kit/compare/v0.4.0...v0.5.0) (2026-08-21)
+
+### Features
+
+- add the info severity, and report the storage class no chart can create ([44bfa8a](https://github.com/somaz94/helm-chart-kit/commit/44bfa8ad8385bc80bc6dbf8fb87d1c8215f743d0))
+- add the SecretStore every platform overlay said the chart does not create ([28845bd](https://github.com/somaz94/helm-chart-kit/commit/28845bd58b688778d945f71d73ee678ebecac9b8))
+
+### Contributors
+
+- somaz
+
+<br/>
+
 ## [v0.4.0](https://github.com/somaz94/helm-chart-kit/compare/v0.3.0...v0.4.0) (2026-08-21)
 
 ### Features
