@@ -288,6 +288,11 @@ var rules = []Rule{
 		Summary: "a GKE annotation names a config object the chart does not render",
 		set:     gkeConfigRefRule,
 	},
+	{
+		ID: "HCK039", Severity: Warn, Scope: SetScope,
+		Summary: "chart creates a SecretStore its own ExternalSecret does not use",
+		set:     unusedSecretStoreRule,
+	},
 }
 
 // wedgedBudgetRule catches a PodDisruptionBudget that allows nothing to be
@@ -840,5 +845,51 @@ func sortedKeys(set map[string]bool) []string {
 		out = append(out, k)
 	}
 	slices.Sort(out)
+	return out
+}
+
+// unusedSecretStoreRule reports a SecretStore nothing in the chart reads.
+//
+// The same shape as HCK034 and for the same reason: both halves apply, the
+// ExternalSecret keeps reading whatever ClusterSecretStore it names, and the
+// SecretStore beside it is an object with credentials in it that nothing uses.
+// Nothing errors, and the chart looks like it owns its own credentials path
+// when it does not.
+//
+// Only a "SecretStore" kind in the ref counts as using it. A ClusterSecretStore
+// reference legitimately points outside the chart — that is what a shared store
+// is — so it is reported as what the ExternalSecret names instead, never as a
+// dangling reference.
+func unusedSecretStoreRule(objs []object) []hit {
+	used := map[string]bool{}
+	var pointsAt []string
+	for _, o := range objs {
+		if o.Kind != "ExternalSecret" {
+			continue
+		}
+		ref, _ := o.Spec["secretStoreRef"].(map[string]any)
+		kind, name := str(ref["kind"]), str(ref["name"])
+		if kind == "SecretStore" {
+			used[name] = true
+		}
+		if r := kind + "/" + name; kind != "" && name != "" && !slices.Contains(pointsAt, r) {
+			pointsAt = append(pointsAt, r)
+		}
+	}
+	if len(pointsAt) == 0 {
+		return nil
+	}
+	var out []hit
+	for _, o := range objs {
+		if o.Kind != "SecretStore" || used[o.Name] {
+			continue
+		}
+		out = append(out, hit{
+			Where: "SecretStore/" + o.Name,
+			Message: fmt.Sprintf(
+				"nothing in this chart uses this SecretStore — its ExternalSecret names %s instead, which the chart does not provide. Point externalSecret.secretStoreRef at it, or drop one of the two",
+				strings.Join(pointsAt, ", ")),
+		})
+	}
 	return out
 }

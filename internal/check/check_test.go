@@ -886,3 +886,73 @@ metadata:
 		})
 	}
 }
+
+// A SecretStore beside an ExternalSecret that reads a different store is two
+// halves that both apply and do not meet. Same shape as HCK034, and the
+// ClusterSecretStore case is the reason it cannot be a dangling-reference rule
+// instead: a shared store legitimately lives outside the chart.
+func TestUnusedSecretStoreRule(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		manifests  string
+		wantFiring bool
+	}{
+		{"the ExternalSecret reads a cluster store", `
+kind: SecretStore
+metadata: {name: a}
+---
+kind: ExternalSecret
+metadata: {name: a}
+spec:
+  secretStoreRef: {name: shared, kind: ClusterSecretStore}
+`, true},
+		{"wired together says nothing", `
+kind: SecretStore
+metadata: {name: a}
+---
+kind: ExternalSecret
+metadata: {name: a}
+spec:
+  secretStoreRef: {name: a, kind: SecretStore}
+`, false},
+		// Quiet when there is nothing to be wrong about: a store on its own is
+		// a chart that has not added the ExternalSecret yet.
+		{"a store with no ExternalSecret", `
+kind: SecretStore
+metadata: {name: a}
+`, false},
+		{"an ExternalSecret with no store", `
+kind: ExternalSecret
+metadata: {name: a}
+spec:
+  secretStoreRef: {name: shared, kind: ClusterSecretStore}
+`, false},
+		// Two stores, one used: only the other is reported.
+		{"one of two is used", `
+kind: SecretStore
+metadata: {name: a}
+---
+kind: SecretStore
+metadata: {name: b}
+---
+kind: ExternalSecret
+metadata: {name: a}
+spec:
+  secretStoreRef: {name: a, kind: SecretStore}
+`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs, err := decodeAll(tc.manifests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := unusedSecretStoreRule(objs)
+			if firing := len(got) > 0; firing != tc.wantFiring {
+				t.Errorf("fired=%v want %v: %v", firing, tc.wantFiring, got)
+			}
+			if tc.name == "one of two is used" && len(got) == 1 && got[0].Where != "SecretStore/b" {
+				t.Errorf("reported %s, want the unused one", got[0].Where)
+			}
+		})
+	}
+}

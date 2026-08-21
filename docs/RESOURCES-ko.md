@@ -44,7 +44,7 @@
 
 ## 그룹
 
-카탈로그는 리소스 36개이고 이름은 전부 Kubernetes 종류(kind)입니다. 그래서 알파벳 목록은 *무엇이 있는가*만 답하고 그 이상은 답하지 못합니다. 모니터링 한 벌을 찾으려면 그게 `servicemonitor`, `prometheusrule`, `grafanadashboard`라고 불린다는 걸 이미 알고 있어야 했습니다.
+카탈로그는 리소스 37개이고 이름은 전부 Kubernetes 종류(kind)입니다. 그래서 알파벳 목록은 *무엇이 있는가*만 답하고 그 이상은 답하지 못합니다. 모니터링 한 벌을 찾으려면 그게 `servicemonitor`, `prometheusrule`, `grafanadashboard`라고 불린다는 걸 이미 알고 있어야 했습니다.
 
 모든 리소스는 그룹 하나에 속하고, `@`로 시작하는 이름은 그 그룹의 구성원 전체를 뜻합니다.
 
@@ -59,7 +59,7 @@ hck new payments-api --with @secrets    # every way of getting a secret in
 | `@exposure` | what reaches it | backendconfig, frontendconfig, httproute, ingress, referencegrant, service |
 | `@scaling` | how many, and what may evict them | hpa, pdb, scaledjob, scaledobject, vpa |
 | `@access` | identity, permissions and who may connect | networkpolicy, rbac, serviceaccount |
-| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, managedcertificate, sealedsecret, secret |
+| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, managedcertificate, sealedsecret, secret, secretstore |
 | `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, podmonitoring, prometheusrule, servicemonitor |
 | `@mesh` | Istio routing and policy | authorizationpolicy, destinationrule, virtualservice |
 | `@chart` | configuration, storage and the chart's own install test | configmap, pvc, tests |
@@ -67,6 +67,9 @@ hck new payments-api --with @secrets    # every way of getting a secret in
 `hck list resources`는 이 순서로 출력합니다 — 무언가 돌고, 무언가 그것에 닿고, 스케일되고, 잠기고, 관측된다 — 대체로 결정이 내려지는 순서입니다. 그룹과 리소스는 서로 다른 이름 공간이고 `@`가 그 둘을 갈라 놓습니다. 나중에 그룹과 리소스가 같은 이름을 갖게 될 수 있는데, 접두사가 없으면 어느 쪽이 이기는지를 조회 순서가 정하게 됩니다.
 
 그룹을 자기 구성원과 나란히 써도 한 번만 풀립니다. `--with @exposure,service`는 `@exposure`와 같습니다.
+
+
+`secretstore`는 `externalsecret`과 한 쌍이고, `issuer`와 `certificate`의 관계와 같은 형태입니다. 차트가 자기 자격증명 경로를 소유할 때 쓰는 namespaced kind이고, `ClusterSecretStore`는 클러스터를 운영하는 쪽의 것입니다. 둘을 자동으로 배선하지는 않습니다 — `externalSecret.secretStoreRef`에는 의미 있는 기본값이 있고, 조용히 다른 곳을 가리키게 바꾸면 기존 차트가 읽는 대상이 달라지기 때문입니다. 그래서 배선되지 않은 쌍은 `HCK039`가 보고합니다. provider 블록은 플랫폼 오버레이가 채웁니다 — `values-aws.yaml`은 Secrets Manager, `values-gcp.yaml`은 Secret Manager, `values-azure.yaml`은 Key Vault.
 
 <br/>
 

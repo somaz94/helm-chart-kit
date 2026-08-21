@@ -1223,12 +1223,14 @@ func TestEveryResourceRendersWhenEnabled(t *testing.T) {
 	}
 	out := mustRun(t, "check", "--chart", dir, "-f", values, "--print")
 
-	// Turning everything on at once is itself two findings, and both are the
-	// point of the rule rather than a defect in a template: HPA and KEDA both
-	// driving the replica count is HCK031, and the cert-manager/GKE and
-	// ServiceMonitor/PodMonitoring pairs are HCK037. Anything else means a
-	// resource renders something the house rules object to.
-	expected := []string{"HCK031", "HCK037"}
+	// Turning everything on at once necessarily creates pairs that want a
+	// decision, and each of these is the rule working rather than a defect in
+	// a template: HPA and KEDA both driving the replica count (HCK031), the
+	// cert-manager/GKE and ServiceMonitor/PodMonitoring pairs (HCK037), and a
+	// SecretStore beside an ExternalSecret still reading the default
+	// ClusterSecretStore (HCK039). Anything else means a resource renders
+	// something the house rules object to.
+	expected := []string{"HCK031", "HCK037", "HCK039"}
 	for _, id := range expected {
 		if !strings.Contains(out, id) {
 			t.Errorf("everything is enabled; %s should have fired", id)

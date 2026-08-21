@@ -256,6 +256,60 @@ jobs:
           [[ "$err" == *"@observability"* ]] || { echo "FAIL: the error does not list the groups: $err"; exit 1; }
           echo "PASS: groups"
 
+      # A SecretStore beside an ExternalSecret is a pair that has to be wired
+      # by hand: the ref has a meaningful default, so hck reports rather than
+      # repointing it. Same shape as the Issuer/Certificate pair above.
+      - name: The SecretStore pair
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/bin:$PATH"
+          workdir=$(mktemp -d)
+          hck new ss --dir "$workdir" --preset web --with secretstore,externalsecret >/dev/null
+          chart="$workdir/ss"
+
+          fires() {
+            hck check --chart "$chart" -f "$1" --format json 2>/dev/null \
+              | jq -e 'any(.findings[]; .rule == "HCK039")' >/dev/null
+          }
+
+          # Both halves on, the ref left at its default: reported.
+          printf 'image: {tag: "1.0.0"}\nsecretStore: {enabled: true, provider: {fake: {}}}\nexternalSecret: {enabled: true}\n' > "$workdir/unwired.yaml"
+          fires "$workdir/unwired.yaml" || {
+            echo "FAIL: an unwired SecretStore pair was not reported"
+            exit 1
+          }
+
+          # Wired, and it goes quiet.
+          printf 'image: {tag: "1.0.0"}\nsecretStore: {enabled: true, provider: {fake: {}}}\nexternalSecret: {enabled: true, secretStoreRef: {name: ss, kind: SecretStore}}\n' > "$workdir/wired.yaml"
+          if fires "$workdir/wired.yaml"; then
+            echo "FAIL: HCK039 fires over a pair that is wired"
+            exit 1
+          fi
+          hck check --chart "$chart" -f "$workdir/wired.yaml" --strict >/dev/null
+
+          # A store on its own says nothing: that is a chart that has not
+          # added the ExternalSecret yet, not a mistake.
+          printf 'image: {tag: "1.0.0"}\nsecretStore: {enabled: true, provider: {fake: {}}}\n' > "$workdir/alone.yaml"
+          if fires "$workdir/alone.yaml"; then
+            echo "FAIL: a SecretStore with no ExternalSecret was reported"
+            exit 1
+          fi
+
+          # The provider block comes from the platform overlay, and each cloud
+          # fills it with its own.
+          for p in aws gcp azure; do
+            hck platform add "$p" --chart "$chart" >/dev/null
+            overlay=$(cat "$chart/values-$p.yaml")
+            [[ "$overlay" == *"secretStore:"* ]] || {
+              echo "FAIL: the $p overlay does not carry a SecretStore provider"
+              exit 1
+            }
+          done
+          grep -q 'aws:' "$chart/values-aws.yaml"
+          grep -q 'gcpsm:' "$chart/values-gcp.yaml"
+          grep -q 'azurekv:' "$chart/values-azure.yaml"
+          echo "PASS: the SecretStore pair"
+
       # A platform resource is a kind that only exists on one cloud, which an
       # overlay cannot express: an overlay changes what an annotation says, it
       # cannot conjure the object the annotation names. The wiring is the part
@@ -785,20 +839,22 @@ jobs:
             | grep -vE '^(deployment|statefulset|daemonset|cronjob)$' | tr '\n' ' ')
           hck add $extra --chart "$chart" >/dev/null
 
-          # Two findings are expected here, and both are the rule working
+          # Three findings are expected here, and each is the rule working
           # rather than a template misbehaving: HCK031 because HPA and KEDA
           # both scale this workload, HCK037 because turning everything on
           # necessarily turns on both halves of a competing pair — the
           # cert-manager Certificate beside the GKE ManagedCertificate, and
-          # the ServiceMonitor beside the PodMonitoring.
+          # the ServiceMonitor beside the PodMonitoring — and HCK039 because
+          # the SecretStore is on while the ExternalSecret still reads the
+          # default ClusterSecretStore.
           #
           # Read as JSON so that the set of rules that fired is the assertion,
           # rather than whatever the text report happens to word them as.
           hck check --chart "$chart" -f cmd/cli/testdata/enable-all.yaml \
             --format json > /tmp/all.json 2>/dev/null || true
           fired=$(jq -r '[.findings[].rule] | unique | sort | join(",")' /tmp/all.json)
-          if [ "$fired" != "HCK031,HCK037" ]; then
-            echo "FAIL: expected HCK031,HCK037 and nothing else, got: ${fired:-none}"
+          if [ "$fired" != "HCK031,HCK037,HCK039" ]; then
+            echo "FAIL: expected HCK031,HCK037,HCK039 and nothing else, got: ${fired:-none}"
             jq '.findings' /tmp/all.json
             exit 1
           fi

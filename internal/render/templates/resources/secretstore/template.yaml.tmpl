@@ -1,0 +1,15 @@
+{{- if .Values.secretStore.enabled -}}
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: {{ include "[[ .ChartName ]].fullname" . }}
+  labels:
+    {{- include "[[ .ChartName ]].labels" . | nindent 4 }}
+spec:
+  {{- with .Values.secretStore.retrySettings }}
+  retrySettings:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  provider:
+    {{- toYaml .Values.secretStore.provider | nindent 4 }}
+{{- end }}

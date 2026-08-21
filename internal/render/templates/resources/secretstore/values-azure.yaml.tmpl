@@ -1,0 +1,9 @@
+secretStore:
+  provider:
+    azurekv:
+      vaultUrl: https://my-vault.vault.azure.net
+      # -- Workload Identity, which is what replaced aad-pod-identity. The
+      # ServiceAccount needs the azure.workload.identity/client-id annotation.
+      authType: WorkloadIdentity
+      serviceAccountRef:
+        name: [[ .ChartName ]]

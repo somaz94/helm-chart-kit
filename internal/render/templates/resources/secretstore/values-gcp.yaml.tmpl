@@ -1,0 +1,12 @@
+secretStore:
+  provider:
+    gcpsm:
+      projectID: my-project
+      auth:
+        # -- Workload Identity: the ServiceAccount is bound to a Google
+        # service account, and the operator reads through it.
+        workloadIdentity:
+          clusterLocation: europe-west1
+          clusterName: my-cluster
+          serviceAccountRef:
+            name: [[ .ChartName ]]

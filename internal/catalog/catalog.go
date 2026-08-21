@@ -313,6 +313,23 @@ var resources = []Resource{
 		ValuesKeys: []string{"secret"},
 	},
 	{
+		// The namespaced kind, for a chart that owns its own credentials path.
+		// Every platform overlay on externalsecret says the store "is cluster
+		// infrastructure and is not created by this chart", which was true and
+		// is now a choice: a ClusterSecretStore still belongs to whoever runs
+		// the cluster, and this is the other option.
+		//
+		// Not platform-specific — the kind is the same everywhere and only the
+		// provider block differs, which is what a platform overlay is for.
+		Name:       "secretstore",
+		Group:      SecretsGroup,
+		File:       "secretstore.yaml",
+		Summary:    "External Secrets Operator SecretStore, namespaced — the chart's own credentials path",
+		APIVersion: "external-secrets.io/v1",
+		ValuesKeys: []string{"secretStore"},
+		Optional:   true,
+	},
+	{
 		Name:       "externalsecret",
 		Group:      SecretsGroup,
 		File:       "externalsecret.yaml",

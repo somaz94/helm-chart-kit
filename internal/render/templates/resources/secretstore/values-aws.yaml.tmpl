@@ -1,0 +1,12 @@
+secretStore:
+  provider:
+    aws:
+      # -- Secrets Manager. Use "ParameterStore" for SSM parameters instead.
+      service: SecretsManager
+      region: eu-west-1
+      auth:
+        # -- IRSA: the ServiceAccount carries the role annotation and the
+        # operator assumes it. No static credentials, and nothing to rotate.
+        jwt:
+          serviceAccountRef:
+            name: [[ .ChartName ]]

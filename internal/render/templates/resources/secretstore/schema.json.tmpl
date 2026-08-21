@@ -1,0 +1,20 @@
+{
+  "secretStore": {
+    "type": "object",
+    "description": "External Secrets Operator SecretStore, namespaced. For a chart that owns its own credentials path rather than reading a shared ClusterSecretStore.",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Create the SecretStore"
+      },
+      "retrySettings": {
+        "type": "object",
+        "description": "How the operator backs off when the provider is unreachable"
+      },
+      "provider": {
+        "type": "object",
+        "description": "Provider block, verbatim. Left open on purpose: constraining it here would reject a provider ESO supports."
+      }
+    }
+  }
+}

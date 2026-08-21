@@ -44,7 +44,7 @@ Three of them are shaped by what they leave out, which is the part worth reading
 
 ## Groups
 
-The catalog is 36 resources and their names are Kubernetes kinds, so an alphabetical list answers *what exists* and nothing else. Finding the three pieces of a monitoring setup meant already knowing they are called `servicemonitor`, `prometheusrule` and `grafanadashboard`.
+The catalog is 37 resources and their names are Kubernetes kinds, so an alphabetical list answers *what exists* and nothing else. Finding the three pieces of a monitoring setup meant already knowing they are called `servicemonitor`, `prometheusrule` and `grafanadashboard`.
 
 Every resource belongs to one group, and a name opening with `@` stands for the group's members:
 
@@ -59,7 +59,7 @@ hck new payments-api --with @secrets    # every way of getting a secret in
 | `@exposure` | what reaches it | backendconfig, frontendconfig, httproute, ingress, referencegrant, service |
 | `@scaling` | how many, and what may evict them | hpa, pdb, scaledjob, scaledobject, vpa |
 | `@access` | identity, permissions and who may connect | networkpolicy, rbac, serviceaccount |
-| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, managedcertificate, sealedsecret, secret |
+| `@secrets` | secrets and the certificates that need them | certificate, externalsecret, issuer, managedcertificate, sealedsecret, secret, secretstore |
 | `@observability` | scraping, alerting and dashboards | grafanadashboard, podmonitor, podmonitoring, prometheusrule, servicemonitor |
 | `@mesh` | Istio routing and policy | authorizationpolicy, destinationrule, virtualservice |
 | `@chart` | configuration, storage and the chart's own install test | configmap, pvc, tests |
@@ -67,6 +67,9 @@ hck new payments-api --with @secrets    # every way of getting a secret in
 `hck list resources` prints them in this order — something runs, something reaches it, it scales, it is locked down, it is watched — which is roughly the order the decisions come in. Groups and resources are separate namespaces, kept apart by the `@`: a group and a resource may end up sharing a name, and without the prefix which one won would be decided by lookup order.
 
 A group beside one of its own members resolves once, so `--with @exposure,service` is `@exposure`.
+
+
+`secretstore` is a pair with `externalsecret`, and the same shape as `issuer` with `certificate`: the namespaced kind for a chart that owns its own credentials path, where a `ClusterSecretStore` belongs to whoever runs the cluster. Nothing wires the two together — `externalSecret.secretStoreRef` has a meaningful default and silently repointing it would change what an existing chart reads from — so `HCK039` reports the pair left unwired. The provider block is filled in by the platform overlay: `values-aws.yaml` for Secrets Manager, `values-gcp.yaml` for Secret Manager, `values-azure.yaml` for Key Vault.
 
 <br/>
 

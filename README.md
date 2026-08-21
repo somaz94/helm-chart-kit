@@ -48,7 +48,7 @@ updated payments-api
 
 | | `helm create` | `hck` |
 |---|---|---|
-| **Resources it can emit** | 6, fixed | 36, composable |
+| **Resources it can emit** | 6, fixed | 37, composable |
 | **Adding one to an existing chart** | — | `hck add <resource>` |
 | **`values.yaml` on add** | — | Appended, existing bytes untouched |
 | **Documented values** | Sparse | Every key carries the reason it exists |
@@ -140,7 +140,7 @@ hck check --off HCK025                     # this chart wants its CPU limits
 
 # Add a whole purpose at once — "@name" stands for a group's members
 hck add @observability                     # servicemonitor, rules, dashboard
-hck list resources                         # 36 resources, grouped by purpose
+hck list resources                         # 37 resources, grouped by purpose
 
 # Two workload templates guarded so one renders at a time: built and noted,
 # not refused. HCK030 reports the chart that renders both
@@ -457,6 +457,7 @@ A generated chart is not neutral. These are the calls it makes, and why.
 | `HCK033` | warn | A scaler names a workload the chart does not render |
 | `HCK034` | warn | Chart creates an Issuer its own Certificate does not use |
 | `HCK035` | warn | A Service forwards to a container port name nothing declares |
+| `HCK039` | warn | Chart creates a SecretStore its own ExternalSecret does not use |
 | `HCK037` | warn | Chart renders two resources answering the same question |
 | `HCK038` | warn | A GKE annotation names a config object the chart does not render |
 | `HCK036` | warn | A PodDisruptionBudget that never allows a voluntary disruption |

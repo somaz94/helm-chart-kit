@@ -63,3 +63,7 @@ managedCertificate:
 podMonitoring: {enabled: true}
 backendConfig: {enabled: true}
 frontendConfig: {enabled: true}
+# The SecretStore is left pointing at nothing on purpose: the fixture turns
+# every resource on, and a provider block naming a real vault would be a
+# credential path in a test file.
+secretStore: {enabled: true}
