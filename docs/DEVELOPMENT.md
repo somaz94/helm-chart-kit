@@ -136,6 +136,17 @@ make cover-html      # Open coverage report in browser
 
 <br/>
 
+## Demo
+
+The GIF in the README runs the real `hck` inside the recording container. The chart is created off screen with `hck new payments-api`, so the recording starts on an existing chart. When the output of `hck add` changes, regenerate it from the repo root:
+
+```bash
+GOOS=linux go build -o bin/linux/hck ./cmd
+docker run --rm -v "$PWD:/vhs" ghcr.io/charmbracelet/vhs examples/demo/demo.tape
+```
+
+<br/>
+
 ## Code Quality
 
 ```bash

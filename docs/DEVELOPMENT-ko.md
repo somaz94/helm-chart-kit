@@ -136,6 +136,17 @@ make cover-html      # 브라우저로 커버리지 리포트 열기
 
 <br/>
 
+## 데모
+
+README의 GIF는 녹화 컨테이너 안에서 실제 `hck`를 실행한 것입니다. 차트는 화면 밖에서 `hck new payments-api`로 만들어서, 녹화는 이미 있는 차트에서 시작합니다. `hck add`의 출력이 바뀌면 저장소 루트에서 다시 만듭니다.
+
+```bash
+GOOS=linux go build -o bin/linux/hck ./cmd
+docker run --rm -v "$PWD:/vhs" ghcr.io/charmbracelet/vhs examples/demo/demo.tape
+```
+
+<br/>
+
 ## 코드 품질
 
 ```bash

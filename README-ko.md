@@ -7,6 +7,8 @@
 
 `hck` — 차트를 만든 뒤에도 계속 손볼 수 있는 단일 바이너리 차트 스캐폴더입니다.
 
+![hck add servicemonitor가 템플릿을 추가하고, values.yaml의 기존 내용 뒤에 설명이 달린 metrics 섹션을 덧붙이는 모습](examples/demo/demo.gif)
+
 > 자세한 문서는 [docs/](docs/) 폴더에 있습니다:
 >
 > [사용법](docs/USAGE-ko.md) |

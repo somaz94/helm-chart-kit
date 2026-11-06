@@ -7,6 +7,8 @@
 
 `hck` — a single-binary chart scaffolder that keeps working on a chart after it exists.
 
+![hck add servicemonitor adds the template and appends a documented metrics section after the lines values.yaml already had](examples/demo/demo.gif)
+
 > For detailed documentation, see the [docs/](docs/) folder:
 >
 > [Usage](docs/USAGE.md) |
